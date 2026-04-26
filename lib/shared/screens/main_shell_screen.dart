@@ -2,10 +2,16 @@
 /// Main authenticated shell with bottom navigation, FAB, and side drawer.
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../core/constants/app_colors.dart';
+import '../../features/auth/presentation/providers/auth_provider.dart';
+import '../../features/crops/presentation/screens/add_crop_screen.dart';
+import '../../features/crops/presentation/screens/my_crops_screen.dart';
+import '../../features/farms/presentation/screens/my_farm_screen.dart';
+import '../../features/marketplace/presentation/screens/marketplace_screen.dart';
+import '../../features/profile/presentation/screens/profile_screen.dart';
 import '../../routes/route_names.dart';
-import 'placeholder_screen.dart';
 
 class MainShellScreen extends StatefulWidget {
   const MainShellScreen({super.key});
@@ -18,26 +24,11 @@ class _MainShellScreenState extends State<MainShellScreen> {
   int _selectedIndex = 0;
 
   final List<Widget> _tabs = const <Widget>[
-    AppPlaceholderScreen(
-      title: 'Market',
-      message: 'Browse active crop listings from local farmers.',
-    ),
-    AppPlaceholderScreen(
-      title: 'My Crops',
-      message: 'Manage your crop inventory and sync status here.',
-    ),
-    AppPlaceholderScreen(
-      title: 'Add Crop',
-      message: 'Use the FAB to create a new crop listing.',
-    ),
-    AppPlaceholderScreen(
-      title: 'My Farm',
-      message: 'Store farm details, location, and profile information.',
-    ),
-    AppPlaceholderScreen(
-      title: 'Profile',
-      message: 'Update your farmer profile and preferences.',
-    ),
+    MarketplaceScreen(),
+    MyCropsScreen(),
+    AddCropScreen(),
+    MyFarmScreen(),
+    ProfileScreen(),
   ];
 
   void _onTabSelected(int index) {
@@ -52,6 +43,15 @@ class _MainShellScreenState extends State<MainShellScreen> {
 
   void _openRoute(String routeName) {
     Navigator.pushNamed(context, routeName);
+  }
+
+  void _logout() {
+    context.read<AuthProvider>().signOut();
+    Navigator.pushNamedAndRemoveUntil(
+      context,
+      RouteNames.login,
+      (Route<dynamic> route) => false,
+    );
   }
 
   @override
@@ -94,7 +94,7 @@ class _MainShellScreenState extends State<MainShellScreen> {
                   textColor: Colors.white,
                   leading: const Icon(Icons.logout),
                   title: const Text('Logout'),
-                  onTap: () => Navigator.pushNamed(context, RouteNames.login),
+                  onTap: _logout,
                 ),
               ],
             ),
