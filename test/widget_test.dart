@@ -1,12 +1,17 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:agri_trade_farmer_app/main.dart';
+import 'package:agri_trade_farmer_app/shared/screens/main_shell_screen.dart';
+import 'package:flutter/material.dart';
 
 void main() {
-  testWidgets('shows the AgriTrade splash screen', (WidgetTester tester) async {
-    await tester.pumpWidget(const AgriTradeApp());
+  testWidgets('builds the navigation shell', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: MainShellScreen(),
+      ),
+    );
 
     expect(find.text('AgriTrade'), findsOneWidget);
-    expect(find.text('Connecting farmers and buyers offline first'), findsOneWidget);
+    expect(find.text('Market'), findsOneWidget);
   });
 }

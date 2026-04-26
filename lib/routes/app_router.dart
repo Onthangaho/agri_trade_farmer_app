@@ -9,6 +9,9 @@ import '../features/auth/presentation/providers/auth_provider.dart';
 import '../features/auth/presentation/screens/forgot_password_screen.dart';
 import '../features/auth/presentation/screens/login_screen.dart';
 import '../features/auth/presentation/screens/register_screen.dart';
+import '../features/crops/presentation/screens/add_crop_screen.dart';
+import '../features/farms/presentation/screens/my_farm_screen.dart';
+import '../features/profile/presentation/screens/profile_screen.dart';
 import '../features/splash/presentation/screens/splash_screen.dart';
 import '../shared/screens/main_shell_screen.dart';
 import '../shared/screens/placeholder_screen.dart';
@@ -75,25 +78,16 @@ class AppRouter {
       case RouteNames.home:
         return const MainShellScreen();
       case RouteNames.addCrop:
-        return const AppPlaceholderScreen(
-          title: 'Add Crop',
-          message: 'Crop creation will be implemented in the crop inventory feature.',
-        );
+        return const AddCropScreen();
       case RouteNames.cropDetail:
         return const AppPlaceholderScreen(
           title: 'Crop Detail',
           message: 'Crop detail content will be added with the crop feature.',
         );
       case RouteNames.addFarm:
-        return const AppPlaceholderScreen(
-          title: 'Add Farm',
-          message: 'Farm creation will be implemented in the farm feature.',
-        );
+        return const MyFarmScreen();
       case RouteNames.editProfile:
-        return const AppPlaceholderScreen(
-          title: 'Edit Profile',
-          message: 'Profile editing will be added in the profile feature.',
-        );
+        return const ProfileScreen();
       case RouteNames.settings:
         return const AppPlaceholderScreen(
           title: 'Settings',
