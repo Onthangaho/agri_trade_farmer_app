@@ -10,6 +10,7 @@ import 'package:provider/single_child_widget.dart';
 
 import 'core/theme/app_theme.dart';
 import 'features/auth/presentation/providers/auth_provider.dart';
+import 'firebase_options.dart';
 import 'injection.dart';
 import 'routes/app_router.dart';
 import 'routes/route_names.dart';
@@ -18,7 +19,7 @@ import 'shared/providers/theme_provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await setupServiceLocator();
   await SystemChrome.setPreferredOrientations(<DeviceOrientation>[
     DeviceOrientation.portraitUp,
