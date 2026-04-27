@@ -1,9 +1,9 @@
 // lib/shared/database/database_helper.dart
-/// SQLite helper with schema creation and CRUD support for offline-first data.
+/// SQLite singleton for crops, farmers, farms, and sync queue persistence.
 
-import 'dart:io';
+import 'dart:convert';
 
-import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
 
 import 'database_constants.dart';
@@ -11,31 +11,59 @@ import 'database_constants.dart';
 class DatabaseHelper {
   DatabaseHelper._internal();
 
-  static final DatabaseHelper _instance = DatabaseHelper._internal();
+  static final DatabaseHelper instance = DatabaseHelper._internal();
 
-  factory DatabaseHelper() => _instance;
+  factory DatabaseHelper() => instance;
 
   Database? _database;
+  String? _databasePathOverride;
+
+  void setDatabasePathForTesting(String databasePath) {
+    _databasePathOverride = databasePath;
+  }
+
+  Future<void> close() async {
+    final Database? currentDatabase = _database;
+    if (currentDatabase != null) {
+      await currentDatabase.close();
+      _database = null;
+    }
+  }
 
   Future<Database> get database async {
-    if (_database != null) {
-      return _database!;
+    final Database? currentDatabase = _database;
+    if (currentDatabase != null) {
+      return currentDatabase;
     }
     _database = await _initDatabase();
     return _database!;
   }
 
   Future<Database> _initDatabase() async {
-    final Directory directory = await getApplicationDocumentsDirectory();
-    final String path = '${directory.path}${Platform.pathSeparator}${DatabaseConstants.databaseName}';
+    final String dbPath = _databasePathOverride ?? path.join(await getDatabasesPath(), 'agritrade.db');
     return openDatabase(
-      path,
-      version: DatabaseConstants.databaseVersion,
+      dbPath,
+      version: 1,
       onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
     );
   }
 
   Future<void> _onCreate(Database db, int version) async {
+    await db.execute('''
+      CREATE TABLE ${DatabaseConstants.farmersTable} (
+        ${DatabaseConstants.columnId} TEXT PRIMARY KEY,
+        ${DatabaseConstants.columnName} TEXT NOT NULL,
+        ${DatabaseConstants.columnPhone} TEXT,
+        ${DatabaseConstants.columnEmail} TEXT,
+        ${DatabaseConstants.columnBio} TEXT,
+        ${DatabaseConstants.columnProfileImageUrl} TEXT,
+        ${DatabaseConstants.columnCreatedAt} INTEGER NOT NULL,
+        ${DatabaseConstants.columnUpdatedAt} INTEGER NOT NULL,
+        ${DatabaseConstants.columnSynced} INTEGER DEFAULT 0
+      )
+    ''');
+
     await db.execute('''
       CREATE TABLE ${DatabaseConstants.cropsTable} (
         ${DatabaseConstants.columnId} TEXT PRIMARY KEY,
@@ -50,20 +78,6 @@ class DatabaseHelper {
         ${DatabaseConstants.columnListedAt} INTEGER NOT NULL,
         ${DatabaseConstants.columnExpiresAt} INTEGER,
         ${DatabaseConstants.columnStatus} TEXT DEFAULT 'active',
-        ${DatabaseConstants.columnUpdatedAt} INTEGER NOT NULL,
-        ${DatabaseConstants.columnSynced} INTEGER DEFAULT 0
-      )
-    ''');
-
-    await db.execute('''
-      CREATE TABLE ${DatabaseConstants.farmersTable} (
-        ${DatabaseConstants.columnId} TEXT PRIMARY KEY,
-        ${DatabaseConstants.columnName} TEXT NOT NULL,
-        ${DatabaseConstants.columnPhone} TEXT,
-        ${DatabaseConstants.columnEmail} TEXT,
-        ${DatabaseConstants.columnBio} TEXT,
-        ${DatabaseConstants.columnProfileImageUrl} TEXT,
-        ${DatabaseConstants.columnCreatedAt} INTEGER NOT NULL,
         ${DatabaseConstants.columnUpdatedAt} INTEGER NOT NULL,
         ${DatabaseConstants.columnSynced} INTEGER DEFAULT 0
       )
@@ -96,109 +110,179 @@ class DatabaseHelper {
     ''');
   }
 
-  Future<int> insertCrop(Map<String, Object?> values) async {
-    final Database db = await database;
-    return db.insert(DatabaseConstants.cropsTable, values, conflictAlgorithm: ConflictAlgorithm.replace);
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    // TODO: Add migration scripts when the schema version increases.
   }
 
-  Future<int> updateCrop(String id, Map<String, Object?> values) async {
+  Future<void> insertCrop(Map<String, dynamic> data) async {
     final Database db = await database;
-    return db.update(
-      DatabaseConstants.cropsTable,
-      values,
-      where: '${DatabaseConstants.columnId} = ?',
-      whereArgs: <Object?>[id],
-    );
+    await db.insert(DatabaseConstants.cropsTable, data, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  Future<int> deleteCrop(String id) async {
-    final Database db = await database;
-    return db.delete(
-      DatabaseConstants.cropsTable,
-      where: '${DatabaseConstants.columnId} = ?',
-      whereArgs: <Object?>[id],
-    );
-  }
-
-  Future<List<Map<String, Object?>>> getCrops({String? farmerId}) async {
+  Future<List<Map<String, dynamic>>> getCropsByFarmer(String farmerId) async {
     final Database db = await database;
     return db.query(
       DatabaseConstants.cropsTable,
-      where: farmerId == null ? null : '${DatabaseConstants.columnFarmerId} = ?',
-      whereArgs: farmerId == null ? null : <Object?>[farmerId],
+      where: '${DatabaseConstants.columnFarmerId} = ?',
+      whereArgs: <Object?>[farmerId],
       orderBy: '${DatabaseConstants.columnListedAt} DESC',
     );
   }
 
-  Future<int> insertFarmer(Map<String, Object?> values) async {
+  Future<Map<String, dynamic>?> getCropById(String id) async {
     final Database db = await database;
-    return db.insert(DatabaseConstants.farmersTable, values, conflictAlgorithm: ConflictAlgorithm.replace);
+    final List<Map<String, dynamic>> rows = await db.query(
+      DatabaseConstants.cropsTable,
+      where: '${DatabaseConstants.columnId} = ?',
+      whereArgs: <Object?>[id],
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      return null;
+    }
+    return rows.first;
   }
 
-  Future<int> updateFarmer(String id, Map<String, Object?> values) async {
+  Future<void> updateCrop(String id, Map<String, dynamic> data) async {
     final Database db = await database;
-    return db.update(
-      DatabaseConstants.farmersTable,
-      values,
+    await db.update(
+      DatabaseConstants.cropsTable,
+      data,
       where: '${DatabaseConstants.columnId} = ?',
       whereArgs: <Object?>[id],
     );
   }
 
-  Future<int> deleteFarmer(String id) async {
+  Future<void> deleteCrop(String id) async {
     final Database db = await database;
-    return db.delete(
-      DatabaseConstants.farmersTable,
+    await db.delete(
+      DatabaseConstants.cropsTable,
       where: '${DatabaseConstants.columnId} = ?',
       whereArgs: <Object?>[id],
     );
   }
 
-  Future<List<Map<String, Object?>>> getFarmers() async {
-    final Database db = await database;
-    return db.query(DatabaseConstants.farmersTable, orderBy: '${DatabaseConstants.columnCreatedAt} DESC');
-  }
-
-  Future<int> insertFarm(Map<String, Object?> values) async {
-    final Database db = await database;
-    return db.insert(DatabaseConstants.farmsTable, values, conflictAlgorithm: ConflictAlgorithm.replace);
-  }
-
-  Future<int> updateFarm(String id, Map<String, Object?> values) async {
-    final Database db = await database;
-    return db.update(
-      DatabaseConstants.farmsTable,
-      values,
-      where: '${DatabaseConstants.columnId} = ?',
-      whereArgs: <Object?>[id],
-    );
-  }
-
-  Future<int> deleteFarm(String id) async {
-    final Database db = await database;
-    return db.delete(
-      DatabaseConstants.farmsTable,
-      where: '${DatabaseConstants.columnId} = ?',
-      whereArgs: <Object?>[id],
-    );
-  }
-
-  Future<List<Map<String, Object?>>> getFarms({String? farmerId}) async {
+  Future<List<Map<String, dynamic>>> getUnsyncedCrops() async {
     final Database db = await database;
     return db.query(
-      DatabaseConstants.farmsTable,
-      where: farmerId == null ? null : '${DatabaseConstants.columnFarmerId} = ?',
-      whereArgs: farmerId == null ? null : <Object?>[farmerId],
+      DatabaseConstants.cropsTable,
+      where: '${DatabaseConstants.columnSynced} = ?',
+      whereArgs: <Object?>[0],
       orderBy: '${DatabaseConstants.columnUpdatedAt} DESC',
     );
   }
 
-  Future<int> addToSyncQueue(Map<String, Object?> values) async {
+  Future<void> markCropSynced(String id) async {
     final Database db = await database;
-    return db.insert(DatabaseConstants.syncQueueTable, values, conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.update(
+      DatabaseConstants.cropsTable,
+      <String, dynamic>{DatabaseConstants.columnSynced: 1},
+      where: '${DatabaseConstants.columnId} = ?',
+      whereArgs: <Object?>[id],
+    );
   }
 
-  Future<List<Map<String, Object?>>> getPendingSyncItems() async {
+  Future<void> insertFarmer(Map<String, dynamic> data) async {
+    final Database db = await database;
+    await db.insert(DatabaseConstants.farmersTable, data, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<Map<String, dynamic>?> getFarmerById(String id) async {
+    final Database db = await database;
+    final List<Map<String, dynamic>> rows = await db.query(
+      DatabaseConstants.farmersTable,
+      where: '${DatabaseConstants.columnId} = ?',
+      whereArgs: <Object?>[id],
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      return null;
+    }
+    return rows.first;
+  }
+
+  Future<void> updateFarmer(String id, Map<String, dynamic> data) async {
+    final Database db = await database;
+    await db.update(
+      DatabaseConstants.farmersTable,
+      data,
+      where: '${DatabaseConstants.columnId} = ?',
+      whereArgs: <Object?>[id],
+    );
+  }
+
+  Future<void> markFarmerSynced(String id) async {
+    final Database db = await database;
+    await db.update(
+      DatabaseConstants.farmersTable,
+      <String, dynamic>{DatabaseConstants.columnSynced: 1},
+      where: '${DatabaseConstants.columnId} = ?',
+      whereArgs: <Object?>[id],
+    );
+  }
+
+  Future<void> insertFarm(Map<String, dynamic> data) async {
+    final Database db = await database;
+    await db.insert(DatabaseConstants.farmsTable, data, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<Map<String, dynamic>?> getFarmByFarmerId(String farmerId) async {
+    final Database db = await database;
+    final List<Map<String, dynamic>> rows = await db.query(
+      DatabaseConstants.farmsTable,
+      where: '${DatabaseConstants.columnFarmerId} = ?',
+      whereArgs: <Object?>[farmerId],
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      return null;
+    }
+    return rows.first;
+  }
+
+  Future<void> updateFarm(String id, Map<String, dynamic> data) async {
+    final Database db = await database;
+    await db.update(
+      DatabaseConstants.farmsTable,
+      data,
+      where: '${DatabaseConstants.columnId} = ?',
+      whereArgs: <Object?>[id],
+    );
+  }
+
+  Future<void> markFarmSynced(String id) async {
+    final Database db = await database;
+    await db.update(
+      DatabaseConstants.farmsTable,
+      <String, dynamic>{DatabaseConstants.columnSynced: 1},
+      where: '${DatabaseConstants.columnId} = ?',
+      whereArgs: <Object?>[id],
+    );
+  }
+
+  Future<void> addToSyncQueue(
+    String tableName,
+    String recordId,
+    String operation,
+    Map<String, dynamic> payload,
+  ) async {
+    final Database db = await database;
+    await db.insert(
+      DatabaseConstants.syncQueueTable,
+      <String, dynamic>{
+        DatabaseConstants.columnId: payload[DatabaseConstants.columnId] ?? recordId,
+        DatabaseConstants.columnTableName: tableName,
+        DatabaseConstants.columnRecordId: recordId,
+        DatabaseConstants.columnOperation: operation,
+        DatabaseConstants.columnPayload: jsonEncode(payload),
+        DatabaseConstants.columnCreatedAt: payload[DatabaseConstants.columnCreatedAt] ?? DateTime.now().millisecondsSinceEpoch,
+        DatabaseConstants.columnRetryCount: 0,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getPendingSyncItems() async {
     final Database db = await database;
     return db.query(
       DatabaseConstants.syncQueueTable,
@@ -206,18 +290,18 @@ class DatabaseHelper {
     );
   }
 
-  Future<int> deleteSyncQueueItem(String id) async {
+  Future<void> deleteSyncQueueItem(String id) async {
     final Database db = await database;
-    return db.delete(
+    await db.delete(
       DatabaseConstants.syncQueueTable,
       where: '${DatabaseConstants.columnId} = ?',
       whereArgs: <Object?>[id],
     );
   }
 
-  Future<int> incrementRetryCount(String id) async {
+  Future<void> incrementRetryCount(String id) async {
     final Database db = await database;
-    return db.rawUpdate(
+    await db.rawUpdate(
       '''
       UPDATE ${DatabaseConstants.syncQueueTable}
       SET ${DatabaseConstants.columnRetryCount} = ${DatabaseConstants.columnRetryCount} + 1
