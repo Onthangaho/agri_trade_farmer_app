@@ -12,6 +12,7 @@ import '../../features/farms/presentation/screens/my_farm_screen.dart';
 import '../../features/marketplace/presentation/screens/marketplace_screen.dart';
 import '../../features/profile/presentation/screens/profile_screen.dart';
 import '../../routes/route_names.dart';
+import '../widgets/sync_status_badge.dart';
 
 class MainShellScreen extends StatefulWidget {
   const MainShellScreen({super.key});
@@ -57,7 +58,12 @@ class _MainShellScreenState extends State<MainShellScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('AgriTrade')),
+      appBar: AppBar(
+        title: const Text('AgriTrade'),
+        actions: const <Widget>[
+          SyncStatusBadge(),
+        ],
+      ),
       drawer: Drawer(
         child: Container(
           color: AppColors.navyText,
