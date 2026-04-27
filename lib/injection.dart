@@ -10,6 +10,15 @@ import 'core/services/connectivity_service.dart';
 import 'core/services/location_service.dart';
 import 'core/services/storage_service.dart';
 import 'core/services/sync_service.dart';
+import 'features/crops/data/datasources/firestore_crop_datasource.dart';
+import 'features/crops/data/datasources/sqlite_crop_datasource.dart';
+import 'features/crops/data/repositories/crop_repository_impl.dart';
+import 'features/crops/domain/repositories/crop_repository.dart';
+import 'features/crops/domain/use_cases/delete_crop_use_case.dart';
+import 'features/crops/domain/use_cases/get_crops_use_case.dart';
+import 'features/crops/domain/use_cases/save_crop_use_case.dart';
+import 'features/crops/domain/use_cases/update_crop_use_case.dart';
+import 'features/crops/presentation/providers/crop_provider.dart';
 import 'features/profile/data/repositories/profile_repository_impl.dart';
 import 'features/profile/domain/repositories/profile_repository.dart';
 import 'features/profile/domain/use_cases/get_profile_use_case.dart';
@@ -67,6 +76,64 @@ Future<void> setupServiceLocator() async {
     );
   }
 
+  if (!getIt.isRegistered<SqliteCropDataSource>()) {
+    getIt.registerLazySingleton<SqliteCropDataSource>(
+      () => SqliteCropDataSource(databaseHelper: getIt<DatabaseHelper>()),
+    );
+  }
+
+  if (!getIt.isRegistered<FirestoreCropDataSource>()) {
+    getIt.registerLazySingleton<FirestoreCropDataSource>(
+      FirestoreCropDataSource.new,
+    );
+  }
+
+  if (!getIt.isRegistered<CropRepository>()) {
+    getIt.registerLazySingleton<CropRepository>(
+      () => CropRepositoryImpl(
+        sqliteDataSource: getIt<SqliteCropDataSource>(),
+        firestoreDataSource: getIt<FirestoreCropDataSource>(),
+        databaseHelper: getIt<DatabaseHelper>(),
+      ),
+    );
+  }
+
+  if (!getIt.isRegistered<SaveCropUseCase>()) {
+    getIt.registerLazySingleton<SaveCropUseCase>(
+      () => SaveCropUseCase(repository: getIt<CropRepository>()),
+    );
+  }
+
+  if (!getIt.isRegistered<GetCropsUseCase>()) {
+    getIt.registerLazySingleton<GetCropsUseCase>(
+      () => GetCropsUseCase(repository: getIt<CropRepository>()),
+    );
+  }
+
+  if (!getIt.isRegistered<UpdateCropUseCase>()) {
+    getIt.registerLazySingleton<UpdateCropUseCase>(
+      () => UpdateCropUseCase(repository: getIt<CropRepository>()),
+    );
+  }
+
+  if (!getIt.isRegistered<DeleteCropUseCase>()) {
+    getIt.registerLazySingleton<DeleteCropUseCase>(
+      () => DeleteCropUseCase(repository: getIt<CropRepository>()),
+    );
+  }
+
+  if (!getIt.isRegistered<CropProvider>()) {
+    getIt.registerFactory<CropProvider>(
+      () => CropProvider(
+        getCrops: getIt<GetCropsUseCase>(),
+        saveCrop: getIt<SaveCropUseCase>(),
+        updateCrop: getIt<UpdateCropUseCase>(),
+        deleteCrop: getIt<DeleteCropUseCase>(),
+        repository: getIt<CropRepository>(),
+      ),
+    );
+  }
+
   if (!getIt.isRegistered<GetProfileUseCase>()) {
     getIt.registerLazySingleton<GetProfileUseCase>(
       () => GetProfileUseCase(repository: getIt<ProfileRepository>()),
@@ -90,7 +157,6 @@ Future<void> setupServiceLocator() async {
   }
 
   // TODO: Add auth data sources, repository implementation, and auth use cases.
-  // TODO: Add crop data sources, repository implementation, and crop use cases.
   // TODO: Add farm data sources, repository implementation, and farm use cases.
   // TODO: Add marketplace data sources, repository implementation, and marketplace use cases.
 }

@@ -10,6 +10,7 @@ import 'package:provider/single_child_widget.dart';
 
 import 'core/theme/app_theme.dart';
 import 'features/auth/presentation/providers/auth_provider.dart';
+import 'features/crops/presentation/providers/crop_provider.dart';
 import 'features/profile/presentation/providers/profile_provider.dart';
 import 'firebase_options.dart';
 import 'injection.dart' as di;
@@ -50,6 +51,9 @@ class AgriTradeApp extends StatelessWidget {
         ),
         ChangeNotifierProvider<AuthProvider>(
           create: (_) => AuthProvider(),
+        ),
+        ChangeNotifierProvider<CropProvider>(
+          create: (_) => di.getIt<CropProvider>(),
         ),
         ChangeNotifierProvider<ProfileProvider>(
           create: (_) => di.getIt<ProfileProvider>(),
