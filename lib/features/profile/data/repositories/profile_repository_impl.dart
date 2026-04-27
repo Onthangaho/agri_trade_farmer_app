@@ -124,7 +124,18 @@ class ProfileRepositoryImpl implements ProfileRepository {
   @override
   Future<String> updateProfileImage(String farmerId, File imageFile) async {
     try {
-      final Uint8List compressedBytes = await _compressProfileImage(imageFile);
+      final File compressedFile = await _compressProfileImageToFile(imageFile);
+      final bool online = await _isOnline();
+
+      if (!online) {
+        await _queueProfileImageSync(
+          farmerId: farmerId,
+          localImagePath: compressedFile.path,
+        );
+        throw const SocketException('No internet connection');
+      }
+
+      final Uint8List compressedBytes = await compressedFile.readAsBytes();
       final Reference ref = _storage.ref().child('farmers/$farmerId/profile.jpg');
       await ref.putData(
         compressedBytes,
@@ -141,13 +152,19 @@ class ProfileRepositoryImpl implements ProfileRepository {
         await _databaseHelper.insertFarmer(updated);
       }
 
-      final bool online = await _isOnline();
-      if (online) {
+      try {
         await _firestore.collection('farmers').doc(farmerId).set(
           <String, dynamic>{'profileImageUrl': downloadUrl},
           SetOptions(merge: true),
         );
         await _databaseHelper.markFarmerSynced(farmerId);
+      } on FirebaseException catch (error, stackTrace) {
+        _logger.e('Failed to sync profile image url to Firestore', error: error, stackTrace: stackTrace);
+        await _queueProfileImageSync(
+          farmerId: farmerId,
+          remoteImageUrl: downloadUrl,
+          localImagePath: compressedFile.path,
+        );
       }
 
       return downloadUrl;
@@ -162,7 +179,26 @@ class ProfileRepositoryImpl implements ProfileRepository {
     return connectivityResults.any((ConnectivityResult value) => value != ConnectivityResult.none);
   }
 
-  Future<Uint8List> _compressProfileImage(File imageFile) async {
+  Future<void> _queueProfileImageSync({
+    required String farmerId,
+    String? localImagePath,
+    String? remoteImageUrl,
+  }) async {
+    final int createdAt = DateTime.now().millisecondsSinceEpoch;
+    await _databaseHelper.addToSyncQueue(
+      DatabaseConstants.farmersTable,
+      farmerId,
+      'update_profile_image',
+      <String, dynamic>{
+        DatabaseConstants.columnId: 'profile_image_${farmerId}_$createdAt',
+        DatabaseConstants.columnCreatedAt: createdAt,
+        'localImagePath': localImagePath,
+        'remoteImageUrl': remoteImageUrl,
+      },
+    );
+  }
+
+  Future<File> _compressProfileImageToFile(File imageFile) async {
     final XFile? compressed = await FlutterImageCompress.compressAndGetFile(
       imageFile.absolute.path,
       '${imageFile.parent.path}/profile_${DateTime.now().millisecondsSinceEpoch}.jpg',
@@ -172,7 +208,6 @@ class ProfileRepositoryImpl implements ProfileRepository {
       format: CompressFormat.jpeg,
     );
 
-    final File source = compressed == null ? imageFile : File(compressed.path);
-    return source.readAsBytes();
+    return compressed == null ? imageFile : File(compressed.path);
   }
 }
