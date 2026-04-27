@@ -10,6 +10,7 @@ import 'core/services/connectivity_service.dart';
 import 'core/services/location_service.dart';
 import 'core/services/storage_service.dart';
 import 'core/services/sync_service.dart';
+import 'features/farms/data/repositories/farm_repository_impl.dart';
 import 'features/crops/data/datasources/firestore_crop_datasource.dart';
 import 'features/crops/data/datasources/sqlite_crop_datasource.dart';
 import 'features/crops/data/repositories/crop_repository_impl.dart';
@@ -19,6 +20,8 @@ import 'features/crops/domain/use_cases/get_crops_use_case.dart';
 import 'features/crops/domain/use_cases/save_crop_use_case.dart';
 import 'features/crops/domain/use_cases/update_crop_use_case.dart';
 import 'features/crops/presentation/providers/crop_provider.dart';
+import 'features/farms/domain/repositories/farm_repository.dart';
+import 'features/farms/presentation/providers/farm_provider.dart';
 import 'features/profile/data/repositories/profile_repository_impl.dart';
 import 'features/profile/domain/repositories/profile_repository.dart';
 import 'features/profile/domain/use_cases/get_profile_use_case.dart';
@@ -135,6 +138,23 @@ Future<void> setupServiceLocator() async {
     );
   }
 
+  if (!getIt.isRegistered<FarmRepository>()) {
+    getIt.registerLazySingleton<FarmRepository>(
+      () => FarmRepositoryImpl(
+        databaseHelper: getIt<DatabaseHelper>(),
+      ),
+    );
+  }
+
+  if (!getIt.isRegistered<FarmProvider>()) {
+    getIt.registerFactory<FarmProvider>(
+      () => FarmProvider(
+        farmRepository: getIt<FarmRepository>(),
+        locationService: getIt<LocationService>(),
+      ),
+    );
+  }
+
   if (!getIt.isRegistered<GetProfileUseCase>()) {
     getIt.registerLazySingleton<GetProfileUseCase>(
       () => GetProfileUseCase(repository: getIt<ProfileRepository>()),
@@ -158,6 +178,5 @@ Future<void> setupServiceLocator() async {
   }
 
   // TODO: Add auth data sources, repository implementation, and auth use cases.
-  // TODO: Add farm data sources, repository implementation, and farm use cases.
   // TODO: Add marketplace data sources, repository implementation, and marketplace use cases.
 }

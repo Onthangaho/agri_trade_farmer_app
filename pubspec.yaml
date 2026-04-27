@@ -39,6 +39,7 @@ dependencies:
   firebase_auth: ^6.0.2
   firebase_core: ^4.7.0
   firebase_storage: ^13.3.0
+  geocoding: ^4.0.0
   flutter:
     sdk: flutter
   flutter_animate: ^4.5.2
