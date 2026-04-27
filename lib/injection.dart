@@ -61,7 +61,7 @@ Future<void> setupServiceLocator() async {
 
   if (!getIt.isRegistered<StorageService>()) {
     getIt.registerSingleton<StorageService>(
-      StorageService(dioClient: getIt<DioClient>()),
+      StorageService(),
     );
   }
 
@@ -94,6 +94,7 @@ Future<void> setupServiceLocator() async {
         sqliteDataSource: getIt<SqliteCropDataSource>(),
         firestoreDataSource: getIt<FirestoreCropDataSource>(),
         databaseHelper: getIt<DatabaseHelper>(),
+        storageService: getIt<StorageService>(),
       ),
     );
   }
