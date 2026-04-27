@@ -4,9 +4,6 @@
 class DatabaseConstants {
   DatabaseConstants._();
 
-  static const String databaseName = 'agritrade.db';
-  static const int databaseVersion = 1;
-
   static const String cropsTable = 'crops';
   static const String farmersTable = 'farmers';
   static const String farmsTable = 'farms';
