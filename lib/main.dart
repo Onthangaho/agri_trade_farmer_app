@@ -17,6 +17,7 @@ import 'core/services/sync_service.dart';
 import 'features/auth/presentation/providers/auth_provider.dart';
 import 'features/crops/presentation/providers/crop_provider.dart';
 import 'features/farms/presentation/providers/farm_provider.dart';
+import 'features/marketplace/presentation/providers/marketplace_provider.dart';
 import 'features/profile/presentation/providers/profile_provider.dart';
 import 'firebase_options.dart';
 import 'injection.dart' as di;
@@ -95,6 +96,9 @@ class AgriTradeApp extends StatelessWidget {
         ),
         ChangeNotifierProvider<CropProvider>(
           create: (_) => di.getIt<CropProvider>(),
+        ),
+        ChangeNotifierProvider<MarketplaceProvider>(
+          create: (_) => di.getIt<MarketplaceProvider>(),
         ),
         ChangeNotifierProvider<FarmProvider>(
           create: (_) => di.getIt<FarmProvider>(),

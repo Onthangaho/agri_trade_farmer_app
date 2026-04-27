@@ -20,6 +20,7 @@ import 'features/crops/domain/use_cases/get_crops_use_case.dart';
 import 'features/crops/domain/use_cases/save_crop_use_case.dart';
 import 'features/crops/domain/use_cases/update_crop_use_case.dart';
 import 'features/crops/presentation/providers/crop_provider.dart';
+import 'features/marketplace/presentation/providers/marketplace_provider.dart';
 import 'features/farms/domain/repositories/farm_repository.dart';
 import 'features/farms/presentation/providers/farm_provider.dart';
 import 'features/profile/data/repositories/profile_repository_impl.dart';
@@ -137,6 +138,10 @@ Future<void> setupServiceLocator() async {
         repository: getIt<CropRepository>(),
       ),
     );
+  }
+
+  if (!getIt.isRegistered<MarketplaceProvider>()) {
+    getIt.registerFactory<MarketplaceProvider>(MarketplaceProvider.new);
   }
 
   if (!getIt.isRegistered<FarmRepository>()) {
