@@ -13,6 +13,7 @@ class CropEntity extends Equatable {
     required this.pricePerUnit,
     required this.listedAt,
     required this.status,
+    this.synced = true,
     this.imageUrl,
     this.localImagePath,
     this.description,
@@ -31,6 +32,7 @@ class CropEntity extends Equatable {
   final DateTime listedAt;
   final DateTime? expiresAt;
   final String status;
+  final bool synced;
 
   bool get isExpired =>
       expiresAt != null && DateTime.now().isAfter(expiresAt!); // expiresAt null already checked
@@ -48,6 +50,7 @@ class CropEntity extends Equatable {
     DateTime? listedAt,
     DateTime? expiresAt,
     String? status,
+    bool? synced,
   }) {
     return CropEntity(
       id: id ?? this.id,
@@ -62,6 +65,7 @@ class CropEntity extends Equatable {
       listedAt: listedAt ?? this.listedAt,
       expiresAt: expiresAt ?? this.expiresAt,
       status: status ?? this.status,
+      synced: synced ?? this.synced,
     );
   }
 
@@ -79,5 +83,6 @@ class CropEntity extends Equatable {
         listedAt,
         expiresAt,
         status,
+        synced,
       ];
 }

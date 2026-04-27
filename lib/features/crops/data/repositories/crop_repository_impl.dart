@@ -53,6 +53,9 @@ class CropRepositoryImpl implements CropRepository {
     } on FirebaseException catch (error, stackTrace) {
       _logger.e('saveCrop cloud sync failed', error: error, stackTrace: stackTrace);
       await _enqueueCropSync(localModel.id, 'insert', localModel.toFirestore());
+    } catch (error, stackTrace) {
+      _logger.e('saveCrop unexpected cloud sync failure', error: error, stackTrace: stackTrace);
+      await _enqueueCropSync(localModel.id, 'insert', localModel.toFirestore());
     }
   }
 
@@ -90,6 +93,9 @@ class CropRepositoryImpl implements CropRepository {
     } on FirebaseException catch (error, stackTrace) {
       _logger.e('updateCrop cloud sync failed', error: error, stackTrace: stackTrace);
       await _enqueueCropSync(localModel.id, 'update', localModel.toFirestore());
+    } catch (error, stackTrace) {
+      _logger.e('updateCrop unexpected cloud sync failure', error: error, stackTrace: stackTrace);
+      await _enqueueCropSync(localModel.id, 'update', localModel.toFirestore());
     }
   }
 
@@ -107,6 +113,9 @@ class CropRepositoryImpl implements CropRepository {
       await _firestoreDataSource.deleteCrop(id);
     } on FirebaseException catch (error, stackTrace) {
       _logger.e('deleteCrop cloud delete failed', error: error, stackTrace: stackTrace);
+      await _enqueueCropSync(id, 'delete', <String, dynamic>{'id': id});
+    } catch (error, stackTrace) {
+      _logger.e('deleteCrop unexpected cloud delete failure', error: error, stackTrace: stackTrace);
       await _enqueueCropSync(id, 'delete', <String, dynamic>{'id': id});
     }
   }
@@ -126,6 +135,9 @@ class CropRepositoryImpl implements CropRepository {
       } on FirebaseException catch (error, stackTrace) {
         _logger.e('syncPendingCrops failed for ${crop.id}', error: error, stackTrace: stackTrace);
         await _databaseHelper.incrementRetryCount(crop.id);
+      } catch (error, stackTrace) {
+        _logger.e('syncPendingCrops unexpected failure for ${crop.id}', error: error, stackTrace: stackTrace);
+        await _databaseHelper.incrementRetryCount(crop.id);
       }
     }
   }
@@ -134,6 +146,13 @@ class CropRepositoryImpl implements CropRepository {
     try {
       final List<CropModel> remote = await _firestoreDataSource.getCrops(farmerId);
       for (final CropModel crop in remote) {
+        final CropModel? localCrop = await _sqliteDataSource.getCropById(crop.id);
+
+        // Keep local pending edits; they must be synced, not overwritten by stale cloud copies.
+        if (localCrop != null && !localCrop.synced) {
+          continue;
+        }
+
         await _sqliteDataSource.saveCrop(crop.copyWith(synced: true));
       }
     } catch (error, stackTrace) {

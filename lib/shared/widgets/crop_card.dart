@@ -24,7 +24,7 @@ class CropCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool isPendingSync = crop.imageUrl == null && crop.localImagePath != null;
+    final bool isPendingSync = !crop.synced;
     final _StatusPresentation statusPresentation = _buildStatusPresentation(crop);
 
     return Hero(
@@ -180,6 +180,14 @@ class CropCard extends StatelessWidget {
   }
 
   _StatusPresentation _buildStatusPresentation(CropEntity crop) {
+    if (crop.isExpired) {
+      return const _StatusPresentation(
+        label: 'Expired',
+        background: Color(0xFFFEE2E2),
+        foreground: Color(0xFF991B1B),
+      );
+    }
+
     if (crop.status == 'sold') {
       return const _StatusPresentation(
         label: 'Sold',

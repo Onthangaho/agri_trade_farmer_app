@@ -108,7 +108,7 @@ class CropProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> deleteCrop(String id) async {
+  Future<bool> deleteCrop(String id) async {
     _isSaving = true;
     _errorMessage = null;
     notifyListeners();
@@ -120,12 +120,15 @@ class CropProvider extends ChangeNotifier {
     try {
       await _deleteCrop(id);
       _errorMessage = null;
+      return true;
     } on SocketException {
       _errorMessage = 'No internet. Deletion queued for sync.';
+      return true;
     } catch (error, stackTrace) {
       _crops = backup;
       _errorMessage = 'Could not delete crop. Please try again.';
       _logger.e('deleteCrop failed', error: error, stackTrace: stackTrace);
+      return false;
     } finally {
       _isSaving = false;
       notifyListeners();

@@ -16,14 +16,12 @@ class CropModel extends CropEntity {
     required super.pricePerUnit,
     required super.listedAt,
     required super.status,
+    super.synced = false,
     super.imageUrl,
     super.localImagePath,
     super.description,
     super.expiresAt,
-    this.synced = false,
   });
-
-  final bool synced;
 
   factory CropModel.fromEntity(CropEntity crop, {bool synced = false}) {
     return CropModel(

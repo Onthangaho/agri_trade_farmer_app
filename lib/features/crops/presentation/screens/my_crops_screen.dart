@@ -22,6 +22,7 @@ class MyCropsScreen extends StatefulWidget {
 class _MyCropsScreenState extends State<MyCropsScreen> {
   // TODO: Replace with authenticated farmer id from auth state.
   static const String _currentFarmerId = 'demo-farmer-id';
+  CropProvider? _provider;
 
   @override
   void initState() {
@@ -30,25 +31,39 @@ class _MyCropsScreenState extends State<MyCropsScreen> {
       if (!mounted) {
         return;
       }
-      context.read<CropProvider>().loadCrops(_currentFarmerId);
+      final CropProvider provider = context.read<CropProvider>();
+      _provider = provider;
+      provider.addListener(_handleProviderEvents);
+      provider.loadCrops(_currentFarmerId);
     });
+  }
+
+  @override
+  void dispose() {
+    _provider?.removeListener(_handleProviderEvents);
+    super.dispose();
+  }
+
+  void _handleProviderEvents() {
+    if (!mounted || _provider == null) {
+      return;
+    }
+
+    final String? message = _provider!.errorMessage;
+    if (message == null) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+    _provider!.clearError();
   }
 
   @override
   Widget build(BuildContext context) {
     return Consumer<CropProvider>(
       builder: (BuildContext context, CropProvider provider, Widget? child) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          final String? message = provider.errorMessage;
-          if (!mounted || message == null) {
-            return;
-          }
-          ScaffoldMessenger.of(context)
-            ..hideCurrentSnackBar()
-            ..showSnackBar(SnackBar(content: Text(message)));
-          provider.clearError();
-        });
-
         return Scaffold(
           backgroundColor: AppColors.backgroundCream,
           body: _buildBody(provider),
@@ -122,10 +137,11 @@ class _MyCropsScreenState extends State<MyCropsScreen> {
                     );
                   },
                 );
-            return shouldDelete ?? false;
-          },
-          onDismissed: (DismissDirection direction) {
-            context.read<CropProvider>().deleteCrop(crop.id);
+            if (shouldDelete != true) {
+              return false;
+            }
+
+            return context.read<CropProvider>().deleteCrop(crop.id);
           },
           child: CropCard(
             crop: crop,
