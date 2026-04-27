@@ -1,13 +1,17 @@
 // lib/shared/providers/sync_provider.dart
 /// Presentation state for background sync progress and badge counts.
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:logger/logger.dart';
 
 import '../../core/services/sync_service.dart';
 
 class SyncProvider extends ChangeNotifier {
-  SyncProvider({required SyncService syncService}) : _syncService = syncService;
+  SyncProvider({required SyncService syncService}) : _syncService = syncService {
+    unawaited(updatePendingCount());
+  }
 
   final SyncService _syncService;
   final Logger _logger = Logger();

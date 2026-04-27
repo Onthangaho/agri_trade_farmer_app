@@ -106,7 +106,12 @@ class SyncService {
 
     for (final Map<String, dynamic> row in rows) {
       final String cropId = row[DatabaseConstants.columnId] as String;
-      if (await _shouldSkipRecord(cropId, DatabaseConstants.cropsTable)) {
+      final Map<String, dynamic>? queueItem = await _getQueueItemForRecord(
+        DatabaseConstants.cropsTable,
+        cropId,
+        operations: <String>{'insert', 'update', 'upsert'},
+      );
+      if (await _retireIfExceeded(queueItem)) {
         counters.skipped += 1;
         continue;
       }
@@ -147,11 +152,15 @@ class SyncService {
           syncedCrop.toJson(updatedAtMillis: DateTime.now().millisecondsSinceEpoch),
         );
         await _databaseHelper.markCropSynced(crop.id);
-        await _deleteQueueEntries(DatabaseConstants.cropsTable, crop.id);
+        if (queueItem != null) {
+          await _deleteQueueItemById(queueItem[DatabaseConstants.columnId] as String);
+        }
         counters.synced += 1;
       } catch (error, stackTrace) {
         _logger.e('syncCrops failed for $cropId', error: error, stackTrace: stackTrace);
-        await _incrementRetryForRecord(DatabaseConstants.cropsTable, cropId);
+        if (queueItem != null) {
+          await _incrementRetryForQueueItem(queueItem);
+        }
         counters.failed += 1;
       }
     }
@@ -168,7 +177,12 @@ class SyncService {
 
     for (final Map<String, dynamic> row in rows) {
       final String farmerId = row[DatabaseConstants.columnId] as String;
-      if (await _shouldSkipRecord(farmerId, DatabaseConstants.farmersTable)) {
+      final Map<String, dynamic>? queueItem = await _getQueueItemForRecord(
+        DatabaseConstants.farmersTable,
+        farmerId,
+        operations: <String>{'insert', 'update', 'upsert'},
+      );
+      if (await _retireIfExceeded(queueItem)) {
         counters.skipped += 1;
         continue;
       }
@@ -183,11 +197,15 @@ class SyncService {
           farmer.copyWith(synced: true).toJson(updatedAtMillis: DateTime.now().millisecondsSinceEpoch),
         );
         await _databaseHelper.markFarmerSynced(farmer.id);
-        await _deleteQueueEntries(DatabaseConstants.farmersTable, farmer.id);
+        if (queueItem != null) {
+          await _deleteQueueItemById(queueItem[DatabaseConstants.columnId] as String);
+        }
         counters.synced += 1;
       } catch (error, stackTrace) {
         _logger.e('syncFarmer failed for $farmerId', error: error, stackTrace: stackTrace);
-        await _incrementRetryForRecord(DatabaseConstants.farmersTable, farmerId);
+        if (queueItem != null) {
+          await _incrementRetryForQueueItem(queueItem);
+        }
         counters.failed += 1;
       }
     }
@@ -204,7 +222,12 @@ class SyncService {
 
     for (final Map<String, dynamic> row in rows) {
       final String farmId = row[DatabaseConstants.columnId] as String;
-      if (await _shouldSkipRecord(farmId, DatabaseConstants.farmsTable)) {
+      final Map<String, dynamic>? queueItem = await _getQueueItemForRecord(
+        DatabaseConstants.farmsTable,
+        farmId,
+        operations: <String>{'insert', 'update', 'upsert', 'update_location'},
+      );
+      if (await _retireIfExceeded(queueItem)) {
         counters.skipped += 1;
         continue;
       }
@@ -220,11 +243,15 @@ class SyncService {
           _farmToDbMap(farm, synced: true),
         );
         await _databaseHelper.markFarmSynced(farm.id);
-        await _deleteQueueEntries(DatabaseConstants.farmsTable, farm.id);
+        if (queueItem != null) {
+          await _deleteQueueItemById(queueItem[DatabaseConstants.columnId] as String);
+        }
         counters.synced += 1;
       } catch (error, stackTrace) {
         _logger.e('syncFarms failed for $farmId', error: error, stackTrace: stackTrace);
-        await _incrementRetryForRecord(DatabaseConstants.farmsTable, farmId);
+        if (queueItem != null) {
+          await _incrementRetryForQueueItem(queueItem);
+        }
         counters.failed += 1;
       }
     }
@@ -241,8 +268,9 @@ class SyncService {
       final String tableName = item[DatabaseConstants.columnTableName] as String;
       final String recordId = item[DatabaseConstants.columnRecordId] as String;
       final String operation = item[DatabaseConstants.columnOperation] as String;
+      final String itemId = item[DatabaseConstants.columnId] as String;
 
-      if (_shouldSkipQueueItem(item)) {
+      if (await _retireIfExceeded(item)) {
         counters.skipped += 1;
         continue;
       }
@@ -250,7 +278,7 @@ class SyncService {
       if (tableName == DatabaseConstants.farmersTable && operation == 'update_profile_image') {
         try {
           await _syncFarmerProfileImage(recordId, item);
-          await _deleteQueueEntries(tableName, recordId);
+          await _deleteQueueItemById(itemId);
           counters.synced += 1;
         } catch (error, stackTrace) {
           _logger.e('syncFarmerProfileImage failed for $recordId', error: error, stackTrace: stackTrace);
@@ -263,7 +291,7 @@ class SyncService {
       if (operation == 'delete') {
         try {
           await _deleteRemoteRecord(tableName, recordId);
-          await _deleteQueueEntries(tableName, recordId);
+          await _deleteQueueItemById(itemId);
           counters.synced += 1;
         } catch (error, stackTrace) {
           _logger.e('delete queue sync failed for $recordId', error: error, stackTrace: stackTrace);
@@ -274,7 +302,7 @@ class SyncService {
       }
 
       if (await _isRecordSynced(tableName, recordId)) {
-        await _deleteQueueEntries(tableName, recordId);
+        await _deleteQueueItemById(itemId);
       }
     }
   }
@@ -320,27 +348,44 @@ class SyncService {
     await _firestore.collection(tableName).doc(recordId).delete();
   }
 
-  bool _shouldSkipQueueItem(Map<String, dynamic> item) {
-    final int retryCount = (item[DatabaseConstants.columnRetryCount] as num?)?.toInt() ?? 0;
-    return retryCount >= 5;
-  }
-
-  Future<bool> _shouldSkipRecord(String recordId, String tableName) async {
+  Future<Map<String, dynamic>?> _getQueueItemForRecord(
+    String tableName,
+    String recordId, {
+    Set<String>? operations,
+  }) async {
     final dynamic db = await _databaseHelper.database;
     final List<Map<String, dynamic>> rows = await db.query(
       DatabaseConstants.syncQueueTable,
       where: '${DatabaseConstants.columnTableName} = ? AND ${DatabaseConstants.columnRecordId} = ?',
       whereArgs: <Object?>[tableName, recordId],
+      orderBy: '${DatabaseConstants.columnCreatedAt} ASC',
     );
 
-    if (rows.isEmpty) {
+    if (operations == null) {
+      return rows.isEmpty ? null : rows.first;
+    }
+
+    for (final Map<String, dynamic> row in rows) {
+      final String operation = row[DatabaseConstants.columnOperation] as String;
+      if (operations.contains(operation)) {
+        return row;
+      }
+    }
+    return null;
+  }
+
+  Future<bool> _retireIfExceeded(Map<String, dynamic>? item) async {
+    if (item == null) {
       return false;
     }
 
-    final int maxRetry = rows
-        .map((Map<String, dynamic> row) => (row[DatabaseConstants.columnRetryCount] as num?)?.toInt() ?? 0)
-        .reduce((int value, int next) => value > next ? value : next);
-    return maxRetry >= 5;
+    final int retryCount = (item[DatabaseConstants.columnRetryCount] as num?)?.toInt() ?? 0;
+    if (retryCount < 5) {
+      return false;
+    }
+
+    await _deleteQueueItemById(item[DatabaseConstants.columnId] as String);
+    return true;
   }
 
   Future<bool> _isRecordSynced(String tableName, String recordId) async {
@@ -357,41 +402,13 @@ class SyncService {
     return ((rows.first[DatabaseConstants.columnSynced] as num?) ?? 0).toInt() == 1;
   }
 
-  Future<void> _deleteQueueEntries(String tableName, String recordId) async {
+  Future<void> _deleteQueueItemById(String itemId) async {
     final dynamic db = await _databaseHelper.database;
-    final List<Map<String, dynamic>> rows = await db.query(
+    await db.delete(
       DatabaseConstants.syncQueueTable,
-      where: '${DatabaseConstants.columnTableName} = ? AND ${DatabaseConstants.columnRecordId} = ?',
-      whereArgs: <Object?>[tableName, recordId],
+      where: '${DatabaseConstants.columnId} = ?',
+      whereArgs: <Object?>[itemId],
     );
-
-    for (final Map<String, dynamic> row in rows) {
-      await db.delete(
-        DatabaseConstants.syncQueueTable,
-        where: '${DatabaseConstants.columnId} = ?',
-        whereArgs: <Object?>[row[DatabaseConstants.columnId]],
-      );
-    }
-  }
-
-  Future<void> _incrementRetryForRecord(String tableName, String recordId) async {
-    final dynamic db = await _databaseHelper.database;
-    final List<Map<String, dynamic>> rows = await db.query(
-      DatabaseConstants.syncQueueTable,
-      where: '${DatabaseConstants.columnTableName} = ? AND ${DatabaseConstants.columnRecordId} = ?',
-      whereArgs: <Object?>[tableName, recordId],
-    );
-
-    for (final Map<String, dynamic> row in rows) {
-      await db.rawUpdate(
-        '''
-        UPDATE ${DatabaseConstants.syncQueueTable}
-        SET ${DatabaseConstants.columnRetryCount} = ${DatabaseConstants.columnRetryCount} + 1
-        WHERE ${DatabaseConstants.columnId} = ?
-        ''',
-        <Object?>[row[DatabaseConstants.columnId]],
-      );
-    }
   }
 
   Future<void> _incrementRetryForQueueItem(Map<String, dynamic> item) async {

@@ -45,16 +45,6 @@ Future<void> setupServiceLocator() async {
     getIt.registerSingleton<DatabaseHelper>(DatabaseHelper());
   }
 
-  if (!getIt.isRegistered<SyncService>()) {
-    getIt.registerSingleton<SyncService>(
-      SyncService(
-        databaseHelper: getIt<DatabaseHelper>(),
-        connectivityService: getIt<ConnectivityService>(),
-        storageService: getIt<StorageService>(),
-      ),
-    );
-  }
-
   if (!getIt.isRegistered<CameraService>()) {
     getIt.registerSingleton<CameraService>(CameraService());
   }
@@ -66,6 +56,16 @@ Future<void> setupServiceLocator() async {
   if (!getIt.isRegistered<StorageService>()) {
     getIt.registerSingleton<StorageService>(
       StorageService(),
+    );
+  }
+
+  if (!getIt.isRegistered<SyncService>()) {
+    getIt.registerSingleton<SyncService>(
+      SyncService(
+        databaseHelper: getIt<DatabaseHelper>(),
+        connectivityService: getIt<ConnectivityService>(),
+        storageService: getIt<StorageService>(),
+      ),
     );
   }
 

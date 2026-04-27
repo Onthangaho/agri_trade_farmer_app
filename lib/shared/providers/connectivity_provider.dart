@@ -73,9 +73,15 @@ class ConnectivityProvider extends ChangeNotifier {
       return;
     }
 
-    final SyncResult result = await syncService.syncAllPending();
-    syncProvider.applySyncResult(result);
-    await syncProvider.updatePendingCount();
+    try {
+      final SyncResult result = await syncService.syncAllPending();
+      syncProvider.applySyncResult(result);
+      await syncProvider.updatePendingCount();
+    } catch (error, stackTrace) {
+      _errorMessage = 'Background sync failed after connection restore.';
+      debugPrint('ConnectivityProvider _onConnectionRestored failed: $error\n$stackTrace');
+      notifyListeners();
+    }
   }
 
   void clearError() {
