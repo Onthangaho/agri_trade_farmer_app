@@ -10,7 +10,9 @@ import '../../core/services/sync_service.dart';
 
 class SyncProvider extends ChangeNotifier {
   SyncProvider({required SyncService syncService}) : _syncService = syncService {
-    unawaited(updatePendingCount());
+    if (!kIsWeb) {
+      unawaited(updatePendingCount());
+    }
   }
 
   final SyncService _syncService;
@@ -51,6 +53,8 @@ class SyncProvider extends ChangeNotifier {
       _pendingCount = await _syncService.getPendingCount();
       notifyListeners();
     } catch (error, stackTrace) {
+      _pendingCount = 0;
+      notifyListeners();
       _logger.e('updatePendingCount failed', error: error, stackTrace: stackTrace);
     }
   }

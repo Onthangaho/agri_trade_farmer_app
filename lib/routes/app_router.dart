@@ -10,6 +10,8 @@ import '../features/auth/presentation/screens/forgot_password_screen.dart';
 import '../features/auth/presentation/screens/login_screen.dart';
 import '../features/auth/presentation/screens/register_screen.dart';
 import '../features/crops/presentation/screens/add_crop_screen.dart';
+import '../features/crops/presentation/screens/crop_detail_screen.dart';
+import '../features/crops/domain/entities/crop_entity.dart';
 import '../features/farms/presentation/screens/my_farm_screen.dart';
 import '../features/profile/presentation/screens/edit_profile_screen.dart';
 import '../features/splash/presentation/screens/splash_screen.dart';
@@ -39,7 +41,7 @@ class AppRouter {
       return _fadeRoute(const SplashScreen(), settings);
     }
 
-    return _sharedAxisRoute(_buildScreen(routeName), settings);
+    return _sharedAxisRoute(_buildScreen(routeName, settings), settings);
   }
 
   static Route<dynamic> _guardedRoute(String routeName, RouteSettings settings) {
@@ -50,7 +52,7 @@ class AppRouter {
           if (!isAuthenticated) {
             return const LoginScreen();
           }
-          return _buildScreen(routeName);
+          return _buildScreen(routeName, settings);
         },
       ),
       settings,
@@ -67,7 +69,7 @@ class AppRouter {
         routeName == RouteNames.messages;
   }
 
-  static Widget _buildScreen(String routeName) {
+  static Widget _buildScreen(String routeName, [RouteSettings? settings]) {
     switch (routeName) {
       case RouteNames.login:
         return const LoginScreen();
@@ -80,10 +82,14 @@ class AppRouter {
       case RouteNames.addCrop:
         return const AddCropScreen();
       case RouteNames.cropDetail:
-        return const AppPlaceholderScreen(
-          title: 'Crop Detail',
-          message: 'Crop detail content will be added with the crop feature.',
-        );
+        final CropEntity? crop = settings?.arguments as CropEntity?;
+        if (crop == null) {
+          return const AppPlaceholderScreen(
+            title: 'Crop Detail',
+            message: 'Could not open crop details.',
+          );
+        }
+        return CropDetailScreen(crop: crop);
       case RouteNames.addFarm:
         return const MyFarmScreen();
       case RouteNames.editProfile:

@@ -90,9 +90,14 @@ class SyncService {
   }
 
   Future<int> getPendingCount() async {
-    final dynamic db = await _databaseHelper.database;
-    final List<Map<String, dynamic>> queueItems = await db.query(DatabaseConstants.syncQueueTable);
-    return queueItems.length;
+    try {
+      final dynamic db = await _databaseHelper.database;
+      final List<Map<String, dynamic>> queueItems = await db.query(DatabaseConstants.syncQueueTable);
+      return queueItems.length;
+    } catch (error, stackTrace) {
+      _logger.e('getPendingCount failed', error: error, stackTrace: stackTrace);
+      return 0;
+    }
   }
 
   Future<void> _syncCrops(_SyncCounters counters) async {
