@@ -2,9 +2,10 @@
 /// Domain contract for crop inventory persistence and synchronization operations.
 
 import '../entities/crop_entity.dart';
+import 'dart:io';
 
 abstract class CropRepository {
-  Future<void> saveCrop(CropEntity crop);
+  Future<void> saveCrop(CropEntity crop, {File? imageFile});
   Future<List<CropEntity>> getCrops(String farmerId);
   Future<CropEntity?> getCropById(String id);
   Future<void> updateCrop(CropEntity crop);

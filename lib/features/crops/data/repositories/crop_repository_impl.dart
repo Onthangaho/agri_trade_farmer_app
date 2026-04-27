@@ -2,12 +2,14 @@
 /// Offline-first crop repository combining SQLite local cache and Firestore sync.
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:logger/logger.dart';
 
+import '../../../../core/services/storage_service.dart';
 import '../../../../shared/database/database_constants.dart';
 import '../../../../shared/database/database_helper.dart';
 import '../../domain/entities/crop_entity.dart';
@@ -21,27 +23,57 @@ class CropRepositoryImpl implements CropRepository {
     required SqliteCropDataSource sqliteDataSource,
     required FirestoreCropDataSource firestoreDataSource,
     required DatabaseHelper databaseHelper,
+    required StorageService storageService,
     Connectivity? connectivity,
     Logger? logger,
   })  : _sqliteDataSource = sqliteDataSource,
         _firestoreDataSource = firestoreDataSource,
         _databaseHelper = databaseHelper,
+        _storageService = storageService,
         _connectivity = connectivity ?? Connectivity(),
         _logger = logger ?? Logger();
 
   final SqliteCropDataSource _sqliteDataSource;
   final FirestoreCropDataSource _firestoreDataSource;
   final DatabaseHelper _databaseHelper;
+  final StorageService _storageService;
   final Connectivity _connectivity;
   final Logger _logger;
 
   @override
-  Future<void> saveCrop(CropEntity crop) async {
-    final CropModel localModel = CropModel.fromEntity(crop, synced: false);
+  Future<void> saveCrop(CropEntity crop, {File? imageFile}) async {
+    final bool online = await _isOnline();
+    String? imageUrl = crop.imageUrl;
+    String? localImagePath = crop.localImagePath;
 
+    if (imageFile != null && (crop.imageUrl == null || crop.imageUrl!.isEmpty)) {
+      if (online) {
+        try {
+          final CropImageUploadTask uploadTask = _storageService.uploadCropImage(crop.id, imageFile);
+          imageUrl = await uploadTask.downloadUrl;
+          localImagePath = null;
+        } on StorageServiceException catch (error, stackTrace) {
+          _logger.e('saveCrop image upload failed', error: error, stackTrace: stackTrace);
+          localImagePath = imageFile.path;
+          await _enqueueImageUpload(crop.id, imageFile.path);
+        } catch (error, stackTrace) {
+          _logger.e('saveCrop image upload unexpected failure', error: error, stackTrace: stackTrace);
+          localImagePath = imageFile.path;
+          await _enqueueImageUpload(crop.id, imageFile.path);
+        }
+      } else {
+        localImagePath = imageFile.path;
+        await _enqueueImageUpload(crop.id, imageFile.path);
+      }
+    }
+
+    final CropEntity cropWithImage = crop.copyWith(
+      imageUrl: imageUrl,
+      localImagePath: localImagePath,
+    );
+    final CropModel localModel = CropModel.fromEntity(cropWithImage, synced: false);
     await _sqliteDataSource.saveCrop(localModel);
 
-    final bool online = await _isOnline();
     if (!online) {
       await _enqueueCropSync(localModel.id, 'insert', localModel.toFirestore());
       return;
@@ -170,6 +202,21 @@ class CropRepositoryImpl implements CropRepository {
         DatabaseConstants.columnId: cropId,
         DatabaseConstants.columnCreatedAt: createdAt,
         DatabaseConstants.columnPayload: payload,
+      },
+    );
+  }
+
+  Future<void> _enqueueImageUpload(String cropId, String localImagePath) async {
+    final int createdAt = DateTime.now().millisecondsSinceEpoch;
+    await _databaseHelper.addToSyncQueue(
+      DatabaseConstants.cropsTable,
+      cropId,
+      'upload_image',
+      <String, dynamic>{
+        DatabaseConstants.columnId: '${cropId}_image_$createdAt',
+        DatabaseConstants.columnCreatedAt: createdAt,
+        DatabaseConstants.columnRecordId: cropId,
+        DatabaseConstants.columnLocalImagePath: localImagePath,
       },
     );
   }

@@ -62,13 +62,13 @@ class CropProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> saveCrop(CropEntity crop) async {
+  Future<void> saveCrop(CropEntity crop, {File? imageFile}) async {
     _isSaving = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
-      await _saveCrop(crop);
+      await _saveCrop(crop, imageFile: imageFile);
       _crops = <CropEntity>[crop, ..._crops.where((CropEntity item) => item.id != crop.id)];
       _errorMessage = null;
     } on SocketException {

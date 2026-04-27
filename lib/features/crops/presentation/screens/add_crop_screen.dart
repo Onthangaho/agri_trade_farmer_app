@@ -1,11 +1,18 @@
 // lib/features/crops/presentation/screens/add_crop_screen.dart
 /// Form screen for creating a crop listing and saving it offline-first.
 
+import 'dart:async';
+import 'dart:io';
+
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/constants/app_colors.dart';
+import '../../../../core/services/camera_service.dart';
+import '../../../../core/services/storage_service.dart';
+import '../../../../injection.dart' as di;
 import '../../domain/entities/crop_entity.dart';
 import '../providers/crop_provider.dart';
 
@@ -24,12 +31,19 @@ class _AddCropScreenState extends State<AddCropScreen> {
   final TextEditingController _descriptionController = TextEditingController();
   final TextEditingController _expiryController = TextEditingController();
   final Uuid _uuid = const Uuid();
+  final CameraService _cameraService = di.getIt<CameraService>();
+  final StorageService _storageService = di.getIt<StorageService>();
+  final Connectivity _connectivity = Connectivity();
 
   // TODO: Replace with authenticated farmer id from auth state.
   static const String _currentFarmerId = 'demo-farmer-id';
 
   String _unit = 'kg';
   DateTime? _expiresAt;
+  File? _selectedImage;
+  bool _isProcessingImage = false;
+  bool _isUploadingImage = false;
+  double _uploadProgress = 0;
 
   @override
   void dispose() {
@@ -39,6 +53,35 @@ class _AddCropScreenState extends State<AddCropScreen> {
     _descriptionController.dispose();
     _expiryController.dispose();
     super.dispose();
+  }
+
+  Future<bool> _isOnline() async {
+    final List<ConnectivityResult> statuses = await _connectivity.checkConnectivity();
+    return statuses.any((ConnectivityResult result) => result != ConnectivityResult.none);
+  }
+
+  Future<void> _captureImage() async {
+    setState(() {
+      _isProcessingImage = true;
+    });
+
+    try {
+      final File? picked = await _cameraService.captureAndCompress(context);
+      if (!mounted || picked == null) {
+        return;
+      }
+
+      setState(() {
+        _selectedImage = picked;
+      });
+    } finally {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isProcessingImage = false;
+      });
+    }
   }
 
   Future<void> _pickDate() async {
@@ -64,15 +107,59 @@ class _AddCropScreenState extends State<AddCropScreen> {
     }
 
     final CropProvider provider = context.read<CropProvider>();
+    final String cropId = _uuid.v4();
+    final bool online = await _isOnline();
+    String? imageUrl;
+    String? localImagePath;
+
+    if (_selectedImage != null) {
+      if (online) {
+        setState(() {
+          _isUploadingImage = true;
+          _uploadProgress = 0;
+        });
+
+        StreamSubscription<double>? progressSubscription;
+        try {
+          final CropImageUploadTask uploadTask = _storageService.uploadCropImage(cropId, _selectedImage!);
+          progressSubscription = uploadTask.progress.listen((double progress) {
+            if (!mounted) {
+              return;
+            }
+            setState(() {
+              _uploadProgress = progress;
+            });
+          });
+          imageUrl = await uploadTask.downloadUrl;
+        } catch (_) {
+          localImagePath = _selectedImage!.path;
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Image upload failed. It will sync later.')),
+            );
+          }
+        } finally {
+          await progressSubscription?.cancel();
+          if (mounted) {
+            setState(() {
+              _isUploadingImage = false;
+            });
+          }
+        }
+      } else {
+        localImagePath = _selectedImage!.path;
+      }
+    }
+
     final CropEntity crop = CropEntity(
-      id: _uuid.v4(),
+      id: cropId,
       farmerId: _currentFarmerId,
       name: _nameController.text.trim(),
       quantity: double.parse(_quantityController.text.trim()),
       unit: _unit,
       pricePerUnit: double.parse(_priceController.text.trim()),
-      imageUrl: null,
-      localImagePath: null,
+      imageUrl: imageUrl,
+      localImagePath: localImagePath,
       description: _descriptionController.text.trim().isEmpty
           ? null
           : _descriptionController.text.trim(),
@@ -81,7 +168,7 @@ class _AddCropScreenState extends State<AddCropScreen> {
       status: 'active',
     );
 
-    await provider.saveCrop(crop);
+    await provider.saveCrop(crop, imageFile: _selectedImage);
     if (!mounted) {
       return;
     }
@@ -192,22 +279,47 @@ class _AddCropScreenState extends State<AddCropScreen> {
                     ),
                     child: Column(
                       children: <Widget>[
-                        const Icon(Icons.camera_alt_outlined, color: AppColors.mutedText),
+                        if (_selectedImage != null)
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(16),
+                            child: Image.file(
+                              _selectedImage!,
+                              height: 180,
+                              width: double.infinity,
+                              fit: BoxFit.cover,
+                            ),
+                          )
+                        else
+                          const Icon(Icons.camera_alt_outlined, color: AppColors.mutedText),
                         const SizedBox(height: 8),
                         const Text('Add photo'),
+                        if (_isUploadingImage)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(
+                              'Uploading ${(100 * _uploadProgress).toStringAsFixed(0)}%',
+                              style: const TextStyle(color: AppColors.mutedText),
+                            ),
+                          ),
                         const SizedBox(height: 8),
                         OutlinedButton.icon(
-                          onPressed: () {},
-                          icon: const Icon(Icons.add_a_photo_outlined),
-                          label: const Text('Photo coming next session'),
+                          onPressed: _isProcessingImage ? null : _captureImage,
+                          icon: _isProcessingImage
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.add_a_photo_outlined),
+                          label: Text(_selectedImage == null ? 'Take or choose photo' : 'Change photo'),
                         ),
                       ],
                     ),
                   ),
                   const SizedBox(height: 20),
                   ElevatedButton(
-                    onPressed: provider.isSaving ? null : _submit,
-                    child: provider.isSaving
+                    onPressed: (provider.isSaving || _isUploadingImage) ? null : _submit,
+                    child: (provider.isSaving || _isUploadingImage)
                         ? const SizedBox(
                             width: 20,
                             height: 20,
