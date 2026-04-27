@@ -27,6 +27,7 @@ import 'features/profile/domain/repositories/profile_repository.dart';
 import 'features/profile/domain/use_cases/get_profile_use_case.dart';
 import 'features/profile/domain/use_cases/update_profile_use_case.dart';
 import 'features/profile/presentation/providers/profile_provider.dart';
+import 'shared/providers/sync_provider.dart';
 import 'shared/database/database_helper.dart';
 
 final GetIt getIt = GetIt.instance;
@@ -49,7 +50,7 @@ Future<void> setupServiceLocator() async {
       SyncService(
         databaseHelper: getIt<DatabaseHelper>(),
         connectivityService: getIt<ConnectivityService>(),
-        dioClient: getIt<DioClient>(),
+        storageService: getIt<StorageService>(),
       ),
     );
   }
@@ -152,6 +153,12 @@ Future<void> setupServiceLocator() async {
         farmRepository: getIt<FarmRepository>(),
         locationService: getIt<LocationService>(),
       ),
+    );
+  }
+
+  if (!getIt.isRegistered<SyncProvider>()) {
+    getIt.registerSingleton<SyncProvider>(
+      SyncProvider(syncService: getIt<SyncService>()),
     );
   }
 
