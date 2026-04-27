@@ -10,8 +10,9 @@ import 'package:provider/single_child_widget.dart';
 
 import 'core/theme/app_theme.dart';
 import 'features/auth/presentation/providers/auth_provider.dart';
+import 'features/profile/presentation/providers/profile_provider.dart';
 import 'firebase_options.dart';
-import 'injection.dart';
+import 'injection.dart' as di;
 import 'routes/app_router.dart';
 import 'routes/route_names.dart';
 import 'shared/providers/connectivity_provider.dart';
@@ -20,7 +21,7 @@ import 'shared/providers/theme_provider.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  await setupServiceLocator();
+  await di.setupServiceLocator();
   await SystemChrome.setPreferredOrientations(<DeviceOrientation>[
     DeviceOrientation.portraitUp,
   ]);
@@ -49,6 +50,9 @@ class AgriTradeApp extends StatelessWidget {
         ),
         ChangeNotifierProvider<AuthProvider>(
           create: (_) => AuthProvider(),
+        ),
+        ChangeNotifierProvider<ProfileProvider>(
+          create: (_) => di.getIt<ProfileProvider>(),
         ),
       ],
       child: Builder(

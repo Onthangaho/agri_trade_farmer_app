@@ -10,6 +10,11 @@ import 'core/services/connectivity_service.dart';
 import 'core/services/location_service.dart';
 import 'core/services/storage_service.dart';
 import 'core/services/sync_service.dart';
+import 'features/profile/data/repositories/profile_repository_impl.dart';
+import 'features/profile/domain/repositories/profile_repository.dart';
+import 'features/profile/domain/use_cases/get_profile_use_case.dart';
+import 'features/profile/domain/use_cases/update_profile_use_case.dart';
+import 'features/profile/presentation/providers/profile_provider.dart';
 import 'shared/database/database_helper.dart';
 
 final GetIt getIt = GetIt.instance;
@@ -56,10 +61,36 @@ Future<void> setupServiceLocator() async {
     getIt.registerSingleton<SharedPreferences>(sharedPreferences);
   }
 
-  // TODO: Register feature repositories, use cases, and presentation providers as each feature is built.
+  if (!getIt.isRegistered<ProfileRepository>()) {
+    getIt.registerLazySingleton<ProfileRepository>(
+      () => ProfileRepositoryImpl(databaseHelper: getIt<DatabaseHelper>()),
+    );
+  }
+
+  if (!getIt.isRegistered<GetProfileUseCase>()) {
+    getIt.registerLazySingleton<GetProfileUseCase>(
+      () => GetProfileUseCase(repository: getIt<ProfileRepository>()),
+    );
+  }
+
+  if (!getIt.isRegistered<UpdateProfileUseCase>()) {
+    getIt.registerLazySingleton<UpdateProfileUseCase>(
+      () => UpdateProfileUseCase(repository: getIt<ProfileRepository>()),
+    );
+  }
+
+  if (!getIt.isRegistered<ProfileProvider>()) {
+    getIt.registerFactory<ProfileProvider>(
+      () => ProfileProvider(
+        getProfile: getIt<GetProfileUseCase>(),
+        updateProfile: getIt<UpdateProfileUseCase>(),
+        profileRepository: getIt<ProfileRepository>(),
+      ),
+    );
+  }
+
   // TODO: Add auth data sources, repository implementation, and auth use cases.
   // TODO: Add crop data sources, repository implementation, and crop use cases.
   // TODO: Add farm data sources, repository implementation, and farm use cases.
-  // TODO: Add profile data sources, repository implementation, and profile use cases.
   // TODO: Add marketplace data sources, repository implementation, and marketplace use cases.
 }
