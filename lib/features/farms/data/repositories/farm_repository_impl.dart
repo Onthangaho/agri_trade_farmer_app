@@ -28,9 +28,8 @@ class FarmRepositoryImpl implements FarmRepository {
 
   @override
   Future<void> saveFarm(FarmEntity farm) async {
-    final int now = DateTime.now().millisecondsSinceEpoch;
     try {
-      await _databaseHelper.insertFarm(_toDbMap(farm, nowMillis: now, synced: false));
+      await _databaseHelper.insertFarm(_toDbMap(farm, synced: false));
 
       final bool online = await _isOnline();
       if (!online) {
@@ -59,6 +58,11 @@ class FarmRepositoryImpl implements FarmRepository {
     try {
       final Map<String, dynamic>? localRow = await _databaseHelper.getFarmByFarmerId(farmerId);
       final FarmEntity? localFarm = localRow == null ? null : _fromDbMap(localRow);
+      final bool localIsUnsynced = (localRow?[DatabaseConstants.columnSynced] as int? ?? 0) == 0;
+
+      if (localFarm != null && localIsUnsynced) {
+        return localFarm;
+      }
 
       final bool online = await _isOnline();
       if (online) {
@@ -73,7 +77,7 @@ class FarmRepositoryImpl implements FarmRepository {
             final DocumentSnapshot<Map<String, dynamic>> doc = query.docs.first;
             final FarmEntity remoteFarm = _fromFirestoreDoc(doc);
             await _databaseHelper.insertFarm(
-              _toDbMap(remoteFarm, nowMillis: DateTime.now().millisecondsSinceEpoch, synced: true),
+              _toDbMap(remoteFarm, synced: true),
             );
             return remoteFarm;
           }
@@ -92,7 +96,7 @@ class FarmRepositoryImpl implements FarmRepository {
   }
 
   @override
-  Future<void> updateFarmLocation(String farmId, double lat, double lng, String address) async {
+  Future<void> updateFarmLocation(String farmId, double lat, double lng, String? address) async {
     final int now = DateTime.now().millisecondsSinceEpoch;
 
     try {
@@ -164,7 +168,7 @@ class FarmRepositoryImpl implements FarmRepository {
     }
   }
 
-  Map<String, dynamic> _toDbMap(FarmEntity farm, {required int nowMillis, required bool synced}) {
+  Map<String, dynamic> _toDbMap(FarmEntity farm, {required bool synced}) {
     return <String, dynamic>{
       DatabaseConstants.columnId: farm.id,
       DatabaseConstants.columnFarmerId: farm.farmerId,
@@ -173,7 +177,7 @@ class FarmRepositoryImpl implements FarmRepository {
       DatabaseConstants.columnLongitude: farm.longitude,
       DatabaseConstants.columnSizeHa: farm.sizeHa,
       DatabaseConstants.columnAddress: farm.address,
-      DatabaseConstants.columnUpdatedAt: nowMillis,
+      DatabaseConstants.columnUpdatedAt: farm.updatedAt.millisecondsSinceEpoch,
       DatabaseConstants.columnSynced: synced ? 1 : 0,
     };
   }

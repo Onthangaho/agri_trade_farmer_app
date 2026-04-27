@@ -94,21 +94,23 @@ class FarmProvider extends ChangeNotifier {
         position.latitude,
         position.longitude,
       );
+      final String? resolvedAddress = address == 'Unknown location' ? null : address;
 
       await _farmRepository.updateFarmLocation(
         currentFarm.id,
         position.latitude,
         position.longitude,
-        address,
+        resolvedAddress,
       );
 
-      _farm = currentFarm.copyWith(
+      final FarmEntity liveFarm = _farm ?? currentFarm;
+      _farm = liveFarm.copyWith(
         latitude: position.latitude,
         longitude: position.longitude,
-        address: address,
+        address: resolvedAddress,
         updatedAt: DateTime.now(),
       );
-      _locationTagged = true;
+      _locationTagged = _farm?.isTagged ?? false;
       _errorMessage = null;
     } catch (error, stackTrace) {
       _errorMessage = 'Could not tag farm location. Please try again.';
