@@ -11,7 +11,7 @@ import '../features/auth/presentation/screens/login_screen.dart';
 import '../features/auth/presentation/screens/register_screen.dart';
 import '../features/crops/presentation/screens/add_crop_screen.dart';
 import '../features/farms/presentation/screens/my_farm_screen.dart';
-import '../features/profile/presentation/screens/profile_screen.dart';
+import '../features/profile/presentation/screens/edit_profile_screen.dart';
 import '../features/splash/presentation/screens/splash_screen.dart';
 import '../shared/screens/main_shell_screen.dart';
 import '../shared/screens/placeholder_screen.dart';
@@ -87,7 +87,7 @@ class AppRouter {
       case RouteNames.addFarm:
         return const MyFarmScreen();
       case RouteNames.editProfile:
-        return const ProfileScreen();
+        return const EditProfileScreen();
       case RouteNames.settings:
         return const AppPlaceholderScreen(
           title: 'Settings',
