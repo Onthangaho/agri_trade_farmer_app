@@ -1,8 +1,10 @@
 // lib/features/profile/presentation/providers/profile_provider.dart
-/// Presentation-layer profile provider for loading and updating farmer data.
+/// Profile provider that always resolves to a usable profile model.
 
 import 'dart:io';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:logger/logger.dart';
 
@@ -16,88 +18,197 @@ class ProfileProvider extends ChangeNotifier {
     required GetProfileUseCase getProfile,
     required UpdateProfileUseCase updateProfile,
     required ProfileRepository profileRepository,
-  })  : _getProfile = getProfile,
-        _updateProfile = updateProfile,
-        _profileRepository = profileRepository;
+    FirebaseFirestore? firestore,
+    FirebaseAuth? auth,
+    Logger? logger,
+  })  : _profileRepository = profileRepository,
+        _db = firestore ?? FirebaseFirestore.instance,
+        _auth = auth ?? FirebaseAuth.instance,
+        _logger = logger ?? Logger();
 
-  final GetProfileUseCase _getProfile;
-  final UpdateProfileUseCase _updateProfile;
   final ProfileRepository _profileRepository;
-  final Logger _logger = Logger();
+  final FirebaseFirestore _db;
+  final FirebaseAuth _auth;
+  final Logger _logger;
 
-  FarmerEntity? _farmer;
+  Map<String, dynamic>? _profileData;
   bool _isLoading = false;
-  bool _isUpdating = false;
+  bool _isSaving = false;
   String? _errorMessage;
 
-  FarmerEntity? get farmer => _farmer;
   bool get isLoading => _isLoading;
-  bool get isUpdating => _isUpdating;
+  bool get isUpdating => _isSaving;
+  bool get isSaving => _isSaving;
   String? get errorMessage => _errorMessage;
 
-  Future<void> loadProfile(String farmerId) async {
+  bool get hasProfile => _profileData != null;
+  String get displayName => (_profileData?['name'] as String?)?.trim().isNotEmpty == true
+      ? (_profileData!['name'] as String).trim()
+      : 'AgriTrade Farmer';
+  String get email => (_profileData?['email'] as String?) ?? '';
+  String get phone => (_profileData?['phone'] as String?) ?? '';
+  String get bio => (_profileData?['bio'] as String?) ?? '';
+  String get profileImageUrl => (_profileData?['profileImageUrl'] as String?) ?? '';
+
+  FarmerEntity? get farmer {
+    final Map<String, dynamic>? data = _profileData;
+    if (data == null) {
+      return null;
+    }
+    final String uid = _auth.currentUser?.uid ?? '';
+    if (uid.isEmpty) {
+      return null;
+    }
+    final Timestamp createdAtTs =
+        data['createdAt'] as Timestamp? ?? Timestamp.now();
+    return FarmerEntity(
+      id: uid,
+      name: displayName,
+      email: email,
+      phone: phone.isEmpty ? null : phone,
+      bio: bio.isEmpty ? null : bio,
+      profileImageUrl: profileImageUrl.isEmpty ? null : profileImageUrl,
+      createdAt: createdAtTs.toDate(),
+    );
+  }
+
+  Future<void> loadProfile(String userId) async {
+    if (userId.isEmpty) {
+      _profileData = _fallbackProfileData();
+      _errorMessage = null;
+      notifyListeners();
+      return;
+    }
+
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
-      _farmer = await _getProfile(farmerId);
-      _errorMessage = null;
-    } on SocketException {
-      _errorMessage = 'No internet. Showing saved profile.';
+      final DocumentSnapshot<Map<String, dynamic>> doc =
+          await _db.collection('farmers').doc(userId).get();
+
+      if (doc.exists && doc.data() != null) {
+        _profileData = doc.data()!;
+      } else {
+        _profileData = _fallbackProfileData();
+        await _db.collection('farmers').doc(userId).set(_profileData!);
+      }
+    } on FirebaseException catch (error, stackTrace) {
+      _logger.e('loadProfile Firebase failed', error: error, stackTrace: stackTrace);
+      _profileData = _fallbackProfileData();
+      _errorMessage = 'Could not refresh profile from cloud.';
     } catch (error, stackTrace) {
-      _errorMessage = 'Could not load profile. Please try again.';
       _logger.e('loadProfile failed', error: error, stackTrace: stackTrace);
+      _profileData = _fallbackProfileData();
+      _errorMessage = 'Could not load profile right now.';
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
-  Future<void> updateProfile(FarmerEntity farmer) async {
-    _isUpdating = true;
+  Future<bool> saveProfile({
+    required String userId,
+    required String name,
+    required String email,
+    required String phone,
+    required String bio,
+    String? profileImageUrl,
+  }) async {
+    if (userId.isEmpty) {
+      _errorMessage = 'Please log in first.';
+      notifyListeners();
+      return false;
+    }
+
+    _isSaving = true;
     _errorMessage = null;
     notifyListeners();
 
+    final Map<String, dynamic> payload = <String, dynamic>{
+      'name': name.trim().isEmpty ? 'AgriTrade Farmer' : name.trim(),
+      'email': email.trim(),
+      'phone': phone.trim(),
+      'bio': bio.trim(),
+      'profileImageUrl': profileImageUrl ?? this.profileImageUrl,
+      'updatedAt': Timestamp.now(),
+      'createdAt': (_profileData?['createdAt'] as Timestamp?) ?? Timestamp.now(),
+    };
+
     try {
-      await _updateProfile(farmer);
-      _farmer = farmer;
-      _errorMessage = null;
-    } on SocketException {
-      _farmer = farmer;
-      _errorMessage = 'No internet. Changes saved offline.';
+      await _db.collection('farmers').doc(userId).set(payload, SetOptions(merge: true));
+
+      final User? user = _auth.currentUser;
+      if (user != null && user.displayName != payload['name']) {
+        await user.updateDisplayName(payload['name'] as String);
+        await user.reload();
+      }
+
+      _profileData = <String, dynamic>{
+        ...?_profileData,
+        ...payload,
+      };
+      return true;
+    } on FirebaseException catch (error, stackTrace) {
+      _logger.e('saveProfile Firebase failed', error: error, stackTrace: stackTrace);
+      _errorMessage = 'Failed to save profile. Please try again.';
+      return false;
     } catch (error, stackTrace) {
-      _errorMessage = 'Could not update profile. Please try again.';
-      _logger.e('updateProfile failed', error: error, stackTrace: stackTrace);
+      _logger.e('saveProfile failed', error: error, stackTrace: stackTrace);
+      _errorMessage = 'Failed to save profile. Please try again.';
+      return false;
     } finally {
-      _isUpdating = false;
+      _isSaving = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> updateProfile(FarmerEntity farmer) async {
+    final bool success = await saveProfile(
+      userId: farmer.id,
+      name: farmer.name,
+      email: farmer.email,
+      phone: farmer.phone ?? '',
+      bio: farmer.bio ?? '',
+      profileImageUrl: farmer.profileImageUrl,
+    );
+
+    if (!success && _errorMessage == null) {
+      _errorMessage = 'Could not update profile. Please try again.';
       notifyListeners();
     }
   }
 
   Future<void> updateImage(File imageFile) async {
-    final FarmerEntity? current = _farmer;
-    if (current == null) {
-      _errorMessage = 'Load your profile before uploading an image.';
+    final String userId = _auth.currentUser?.uid ?? '';
+    if (userId.isEmpty) {
+      _errorMessage = 'Please log in first.';
       notifyListeners();
       return;
     }
 
-    _isUpdating = true;
+    _isSaving = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
-      final String imageUrl = await _profileRepository.updateProfileImage(current.id, imageFile);
-      _farmer = current.copyWith(profileImageUrl: imageUrl);
-      _errorMessage = null;
+      final String imageUrl =
+          await _profileRepository.updateProfileImage(userId, imageFile);
+      _profileData = <String, dynamic>{
+        ...?_profileData,
+        'profileImageUrl': imageUrl,
+      };
+    } on FirebaseException catch (error, stackTrace) {
+      _logger.e('updateImage Firebase failed', error: error, stackTrace: stackTrace);
+      _errorMessage = 'Could not update profile image. Please try again.';
     } on SocketException {
       _errorMessage = 'No internet. Image will sync when connected.';
     } catch (error, stackTrace) {
-      _errorMessage = 'Could not update profile image. Please try again.';
       _logger.e('updateImage failed', error: error, stackTrace: stackTrace);
+      _errorMessage = 'Could not update profile image. Please try again.';
     } finally {
-      _isUpdating = false;
+      _isSaving = false;
       notifyListeners();
     }
   }
@@ -105,5 +216,18 @@ class ProfileProvider extends ChangeNotifier {
   void clearError() {
     _errorMessage = null;
     notifyListeners();
+  }
+
+  Map<String, dynamic> _fallbackProfileData() {
+    final User? user = _auth.currentUser;
+    return <String, dynamic>{
+      'name': (user?.displayName ?? 'AgriTrade Farmer').trim(),
+      'email': (user?.email ?? '').trim(),
+      'phone': '',
+      'bio': '',
+      'profileImageUrl': '',
+      'createdAt': Timestamp.now(),
+      'updatedAt': Timestamp.now(),
+    };
   }
 }
