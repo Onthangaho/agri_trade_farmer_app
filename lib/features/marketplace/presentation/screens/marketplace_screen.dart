@@ -1,7 +1,8 @@
 // lib/features/marketplace/presentation/screens/marketplace_screen.dart
-/// Marketplace screen for browsing active crop listings across all farmers.
+//Marketplace screen for browsing active crop listings across all farmers.
 
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/constants/app_colors.dart';
@@ -143,7 +144,10 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                             arguments: crop,
                           );
                         },
-                      );
+                      )
+                          .animate(delay: Duration(milliseconds: index * 60))
+                          .fadeIn(duration: 300.ms)
+                          .slideY(begin: 0.2, end: 0, curve: Curves.easeOut);
                     },
                     childCount: provider.filteredListings.length,
                   ),
@@ -162,7 +166,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
   }
 
   static Widget _buildShimmerItem(BuildContext context, int index) {
-    return const ShimmerLoader(height: 220, borderRadius: 16);
+    return const ShimmerCropCard();
   }
 
   Widget _buildHeader(String farmerName) {
