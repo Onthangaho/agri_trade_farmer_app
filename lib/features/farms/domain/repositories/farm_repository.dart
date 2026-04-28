@@ -1,5 +1,5 @@
 // lib/features/farms/domain/repositories/farm_repository.dart
-/// Contract for farm persistence and location tagging operations.
+//Contract for farm persistence and location tagging operations.
 
 import '../entities/farm_entity.dart';
 
