@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../../routes/route_names.dart';
+import '../../../../shared/providers/connectivity_provider.dart';
 import '../../../../shared/widgets/crop_card.dart';
 import '../../../../shared/widgets/empty_state_widget.dart';
 import '../../../../shared/widgets/shimmer_loader.dart';
@@ -95,15 +96,49 @@ class _MyCropsScreenState extends State<MyCropsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<CropProvider>(
-      builder: (BuildContext context, CropProvider provider, Widget? child) {
+    return Consumer2<CropProvider, ConnectivityProvider>(
+      builder: (
+        BuildContext context,
+        CropProvider provider,
+        ConnectivityProvider connectivityProvider,
+        Widget? child,
+      ) {
         return Scaffold(
           backgroundColor: AppColors.backgroundCream,
-          body: _buildBody(provider),
-          floatingActionButton: FloatingActionButton(
+          body: Column(
+            children: <Widget>[
+              if (!connectivityProvider.isOnline)
+                Container(
+                  width: double.infinity,
+                  color: AppColors.accentAmber.withValues(alpha: 0.18),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: const Text(
+                    'Cloud is offline. Showing locally saved crops.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontFamily: 'NunitoSans',
+                      color: AppColors.navyText,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              Expanded(child: _buildBody(provider)),
+            ],
+          ),
+          floatingActionButton: FloatingActionButton.extended(
+            heroTag: 'my_crops_add_fab',
             backgroundColor: AppColors.accentAmber,
             onPressed: () => Navigator.pushNamed(context, RouteNames.addCrop),
-            child: const Icon(Icons.add, color: AppColors.navyText),
+            icon: const Icon(Icons.add, color: AppColors.navyText),
+            label: const Text(
+              'Add Crop',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontWeight: FontWeight.w600,
+                color: AppColors.navyText,
+              ),
+            ),
           ),
         );
       },
@@ -132,7 +167,7 @@ class _MyCropsScreenState extends State<MyCropsScreen> {
             EmptyStateWidget(
               icon: Icons.grass_outlined,
               title: 'No crops listed yet',
-              subtitle: 'Tap + to add your first crop',
+              subtitle: 'Tap Add Crop to list your first crop',
             ),
           ],
         ),
