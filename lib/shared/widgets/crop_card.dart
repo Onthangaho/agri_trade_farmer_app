@@ -5,7 +5,6 @@ import 'dart:io';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../features/crops/domain/entities/crop_entity.dart';
@@ -104,43 +103,53 @@ class CropCard extends StatelessWidget {
           ),
         ),
       ),
-    ).animate(delay: (index * 60).ms).fadeIn(duration: 260.ms).slideY(begin: 0.1, end: 0);
+    );
   }
 
   Widget _buildImage() {
     const BorderRadius radius = BorderRadius.all(Radius.circular(12));
+    final String semanticLabel = '${crop.name} crop image';
 
     if (crop.imageUrl != null && crop.imageUrl!.isNotEmpty) {
-      return ClipRRect(
-        borderRadius: radius,
-        child: CachedNetworkImage(
-          imageUrl: crop.imageUrl!,
-          width: 80,
-          height: 80,
-          fit: BoxFit.cover,
-          placeholder: (BuildContext context, String _) => Container(
+      return Semantics(
+        label: semanticLabel,
+        image: true,
+        child: ClipRRect(
+          borderRadius: radius,
+          child: CachedNetworkImage(
+            imageUrl: crop.imageUrl!,
             width: 80,
             height: 80,
-            color: AppColors.surfaceMist,
-            child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+            fit: BoxFit.cover,
+            placeholder: (BuildContext context, String _) => Container(
+              width: 80,
+              height: 80,
+              color: AppColors.surfaceMist,
+              child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+            ),
+            errorWidget: (BuildContext context, String imageUrl, Object error) =>
+                _placeholderImage(),
           ),
-          errorWidget: (BuildContext context, String _, Object __) => _placeholderImage(),
         ),
       );
     }
 
     if (crop.localImagePath != null && crop.localImagePath!.isNotEmpty) {
       final File imageFile = File(crop.localImagePath!);
-      return ClipRRect(
-        borderRadius: radius,
-        child: Image.file(
-          imageFile,
-          width: 80,
-          height: 80,
-          fit: BoxFit.cover,
-          errorBuilder: (BuildContext context, Object error, StackTrace? stackTrace) {
-            return _placeholderImage();
-          },
+      return Semantics(
+        label: semanticLabel,
+        image: true,
+        child: ClipRRect(
+          borderRadius: radius,
+          child: Image.file(
+            imageFile,
+            width: 80,
+            height: 80,
+            fit: BoxFit.cover,
+            errorBuilder: (BuildContext context, Object error, StackTrace? stackTrace) {
+              return _placeholderImage();
+            },
+          ),
         ),
       );
     }
