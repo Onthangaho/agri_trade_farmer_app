@@ -9,8 +9,8 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../routes/route_names.dart';
 import '../../../../shared/widgets/crop_card.dart';
 import '../../../../shared/widgets/shimmer_loader.dart';
+import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../crops/domain/entities/crop_entity.dart';
-import '../../../profile/presentation/providers/profile_provider.dart';
 import '../providers/marketplace_provider.dart';
 
 class MarketplaceScreen extends StatefulWidget {
@@ -22,6 +22,7 @@ class MarketplaceScreen extends StatefulWidget {
 
 class _MarketplaceScreenState extends State<MarketplaceScreen> {
   final TextEditingController _searchController = TextEditingController();
+  bool _hasLoaded = false;
 
   static const List<String> _filters = <String>[
     'All',
@@ -39,7 +40,10 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
       if (!mounted) {
         return;
       }
-      Provider.of<MarketplaceProvider?>(context, listen: false)?.loadListings();
+      if (!_hasLoaded) {
+        _hasLoaded = true;
+        Provider.of<MarketplaceProvider?>(context, listen: false)?.loadListings();
+      }
     });
   }
 
@@ -51,9 +55,15 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final ProfileProvider? profileProvider = context.watch<ProfileProvider?>();
+    final AuthProvider? authProvider = context.watch<AuthProvider?>();
     final MarketplaceProvider? provider = context.watch<MarketplaceProvider?>();
-    final String farmerName = profileProvider?.farmer?.name ?? 'Farmer';
+    final DateTime now = DateTime.now();
+    final String greeting = now.hour < 12
+        ? 'Good morning'
+        : now.hour < 18
+            ? 'Good afternoon'
+            : 'Good evening';
+    final String farmerName = authProvider?.currentUser?.displayName ?? 'Farmer';
 
     if (provider == null) {
       return const SizedBox.shrink();
@@ -62,14 +72,19 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
     return Scaffold(
       backgroundColor: AppColors.backgroundCream,
       body: RefreshIndicator(
-        onRefresh: provider.loadListings,
+        color: AppColors.primaryGreen,
+        onRefresh: () async {
+          _hasLoaded = false;
+          await provider.loadListings(forceRefresh: true);
+          _hasLoaded = true;
+        },
         child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: <Widget>[
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                child: _buildHeader(farmerName),
+                child: _buildHeader('$greeting, $farmerName'),
               ),
             ),
             SliverToBoxAdapter(
@@ -93,7 +108,14 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                       child: ChoiceChip(
                         label: Text(value),
                         selected: isSelected,
-                        onSelected: (_) => provider.filterByUnit(value),
+                        onSelected: (_) {
+                          if (value == 'All') {
+                            _searchController.clear();
+                            provider.clearSearch();
+                          } else {
+                            provider.filterByUnit(value);
+                          }
+                        },
                       ),
                     );
                   },
@@ -122,10 +144,15 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                   ),
                 ),
               )
-            else if (provider.filteredListings.isEmpty)
+            else if (provider.filteredListings.isEmpty && provider.searchQuery.isNotEmpty)
               SliverFillRemaining(
                 hasScrollBody: false,
                 child: _buildEmpty(provider),
+              )
+            else if (provider.filteredListings.isEmpty)
+              SliverFillRemaining(
+                hasScrollBody: false,
+                child: _buildEmptyListings(),
               )
             else
               SliverPadding(
@@ -141,7 +168,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                           Navigator.pushNamed(
                             context,
                             RouteNames.cropDetail,
-                            arguments: crop,
+                            arguments: crop.id,
                           );
                         },
                       )
@@ -180,7 +207,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               Text(
-                'Good morning, $farmerName',
+                farmerName,
                 style: const TextStyle(
                   fontFamily: 'Poppins',
                   fontWeight: FontWeight.w700,
@@ -292,9 +319,46 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
             TextButton(
               onPressed: () {
                 _searchController.clear();
-                provider.search('');
+                provider.clearSearch();
               },
               child: const Text('Clear search'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyListings() {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(
+              Icons.storefront_outlined,
+              size: 66,
+              color: AppColors.mutedText,
+            ),
+            SizedBox(height: 10),
+            Text(
+              'No listings yet',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                color: AppColors.navyText,
+                fontWeight: FontWeight.w600,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            SizedBox(height: 6),
+            Text(
+              'Pull down to refresh when farmers publish crops.',
+              style: TextStyle(
+                fontFamily: 'Nunito Sans',
+                color: AppColors.mutedText,
+              ),
+              textAlign: TextAlign.center,
             ),
           ],
         ),

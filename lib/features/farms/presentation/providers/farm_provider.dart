@@ -79,6 +79,13 @@ class FarmProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final Map<String, dynamic>? localFarm =
+          await _databaseHelper.getFarmByUserId(userId);
+      if (localFarm != null) {
+        _farmData = _fromLocalRow(localFarm);
+        notifyListeners();
+      }
+
       final DocumentSnapshot<Map<String, dynamic>> doc =
           await _firestore.collection('farms').doc(userId).get();
       if (doc.exists && doc.data() != null) {
@@ -86,16 +93,41 @@ class FarmProvider extends ChangeNotifier {
           'id': doc.id,
           ...doc.data()!,
         };
+        await _databaseHelper.insertFarm(<String, dynamic>{
+          DatabaseConstants.columnId: doc.id,
+          DatabaseConstants.columnFarmerId:
+              (doc.data()!['farmerId'] as String?) ?? userId,
+          DatabaseConstants.columnName:
+              (doc.data()!['name'] as String?) ?? 'My Farm',
+          DatabaseConstants.columnLatitude: doc.data()!['latitude'],
+          DatabaseConstants.columnLongitude: doc.data()!['longitude'],
+          DatabaseConstants.columnSizeHa: doc.data()!['sizeHa'],
+          DatabaseConstants.columnAddress: doc.data()!['address'],
+          DatabaseConstants.columnUpdatedAt: DateTime.now().millisecondsSinceEpoch,
+          DatabaseConstants.columnSynced: 1,
+        });
       } else {
-        _farmData = null;
+        _farmData = localFarm == null ? null : _fromLocalRow(localFarm);
       }
     } on FirebaseException catch (error, stackTrace) {
-      _farmData = null;
-      _errorMessage = 'Could not load farm details right now.';
-      _logger.e('loadFarm Firebase failed', error: error, stackTrace: stackTrace);
+      final Map<String, dynamic>? localFarm =
+          await _databaseHelper.getFarmByUserId(userId);
+      _farmData = localFarm == null ? null : _fromLocalRow(localFarm);
+      if (_farmData == null) {
+        _errorMessage = error.code == 'unavailable'
+            ? 'You are offline. Add your farm details and sync later.'
+            : 'Could not load farm details right now.';
+      } else if (error.code == 'unavailable') {
+        _errorMessage = null;
+      } else {
+        _errorMessage = 'Showing saved farm details.';
+      }
+      _logger.w('loadFarm Firebase fallback to local', error: error, stackTrace: stackTrace);
     } catch (error, stackTrace) {
-      _farmData = null;
-      _errorMessage = 'Could not load farm details right now.';
+      final Map<String, dynamic>? localFarm =
+          await _databaseHelper.getFarmByUserId(userId);
+      _farmData = localFarm == null ? null : _fromLocalRow(localFarm);
+      _errorMessage = _farmData == null ? 'Could not load farm details right now.' : null;
       _logger.e('loadFarm failed', error: error, stackTrace: stackTrace);
     } finally {
       _isLoading = false;
@@ -265,5 +297,20 @@ class FarmProvider extends ChangeNotifier {
   void clearSuccess() {
     _successMessage = null;
     notifyListeners();
+  }
+
+  Map<String, dynamic> _fromLocalRow(Map<String, dynamic> row) {
+    return <String, dynamic>{
+      'id': row[DatabaseConstants.columnId],
+      'farmerId': row[DatabaseConstants.columnFarmerId],
+      'name': row[DatabaseConstants.columnName],
+      'latitude': row[DatabaseConstants.columnLatitude],
+      'longitude': row[DatabaseConstants.columnLongitude],
+      'sizeHa': row[DatabaseConstants.columnSizeHa],
+      'address': row[DatabaseConstants.columnAddress],
+      'updatedAt': Timestamp.fromMillisecondsSinceEpoch(
+        ((row[DatabaseConstants.columnUpdatedAt] as num?) ?? 0).toInt(),
+      ),
+    };
   }
 }

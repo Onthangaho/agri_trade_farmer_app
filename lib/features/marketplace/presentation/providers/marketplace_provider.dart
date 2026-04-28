@@ -16,44 +16,51 @@ class MarketplaceProvider extends ChangeNotifier {
   final FirebaseFirestore _firestore;
   final Logger _logger;
 
-  List<CropEntity> _listings = <CropEntity>[];
+  List<CropEntity> _allListings = <CropEntity>[];
+  List<CropEntity> _filteredListings = <CropEntity>[];
   bool _isLoading = false;
+  bool _hasLoaded = false;
   String? _errorMessage;
   String _searchQuery = '';
   String? _selectedUnit;
 
-  List<CropEntity> get listings => List<CropEntity>.unmodifiable(_listings);
+  List<CropEntity> get listings => List<CropEntity>.unmodifiable(_allListings);
+  List<CropEntity> get filteredListings => List<CropEntity>.unmodifiable(_filteredListings);
   bool get isLoading => _isLoading;
+  bool get hasLoaded => _hasLoaded;
   String? get errorMessage => _errorMessage;
   String get searchQuery => _searchQuery;
   String? get selectedUnit => _selectedUnit;
 
-  List<CropEntity> get filteredListings {
-    final String normalizedQuery = _searchQuery.trim().toLowerCase();
-    final String? filter = _selectedUnit;
+  void _applyFilters() {
+    List<CropEntity> result = List<CropEntity>.from(_allListings);
 
-    final Set<String> knownTypes = <String>{'maize', 'tomatoes', 'potatoes', 'cabbage'};
+    if (_searchQuery.trim().isNotEmpty) {
+      final String query = _searchQuery.trim().toLowerCase();
+      result = result
+          .where(
+            (CropEntity c) =>
+                c.name.toLowerCase().contains(query) ||
+                (c.description ?? '').toLowerCase().contains(query),
+          )
+          .toList(growable: false);
+    }
 
-    return _listings.where((CropEntity crop) {
-      final String cropName = crop.name.toLowerCase();
+    if (_selectedUnit != null && _selectedUnit != 'All') {
+      final String selected = (_selectedUnit ?? '').toLowerCase();
+      result = result
+          .where((CropEntity c) => c.unit.toLowerCase() == selected)
+          .toList(growable: false);
+    }
 
-      final bool matchesSearch = normalizedQuery.isEmpty || cropName.contains(normalizedQuery);
-
-      bool matchesFilter = true;
-      if (filter != null && filter.isNotEmpty && filter != 'All') {
-        final String normalizedFilter = filter.toLowerCase();
-        if (normalizedFilter == 'custom') {
-          matchesFilter = !knownTypes.any((String type) => cropName.contains(type));
-        } else {
-          matchesFilter = cropName.contains(normalizedFilter);
-        }
-      }
-
-      return matchesSearch && matchesFilter;
-    }).toList(growable: false);
+    _filteredListings = result;
   }
 
-  Future<void> loadListings() async {
+  Future<void> loadListings({bool forceRefresh = false}) async {
+    if (_hasLoaded && !forceRefresh) {
+      return;
+    }
+
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
@@ -65,7 +72,11 @@ class MarketplaceProvider extends ChangeNotifier {
           .orderBy('listedAt', descending: true)
           .get();
 
-      _listings = snapshot.docs.map(CropModel.fromFirestore).toList(growable: false);
+      final List<CropEntity> remoteCrops =
+          snapshot.docs.map(CropModel.fromFirestore).toList(growable: false);
+      _allListings = remoteCrops;
+      _hasLoaded = true;
+      _applyFilters();
       _errorMessage = null;
     } catch (error, stackTrace) {
       _errorMessage = 'Could not load marketplace listings.';
@@ -78,11 +89,20 @@ class MarketplaceProvider extends ChangeNotifier {
 
   void search(String query) {
     _searchQuery = query;
+    _applyFilters();
     notifyListeners();
   }
 
   void filterByUnit(String? unit) {
     _selectedUnit = unit;
+    _applyFilters();
+    notifyListeners();
+  }
+
+  void clearSearch() {
+    _searchQuery = '';
+    _selectedUnit = null;
+    _filteredListings = List<CropEntity>.from(_allListings);
     notifyListeners();
   }
 
