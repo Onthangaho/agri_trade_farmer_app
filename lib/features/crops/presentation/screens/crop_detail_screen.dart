@@ -1,63 +1,42 @@
-// lib/features/crops/presentation/screens/crop_detail_screen.dart
-/// Detailed crop listing screen with hero image and farmer contact section.
-
 import 'dart:io';
 
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../../../core/constants/app_colors.dart';
+import '../providers/crop_provider.dart';
 import '../../domain/entities/crop_entity.dart';
 
-class CropDetailScreen extends StatefulWidget {
-  const CropDetailScreen({
-    super.key,
-    required this.crop,
-  });
+class CropDetailScreen extends StatelessWidget {
+  const CropDetailScreen({super.key, this.crop});
 
-  final CropEntity crop;
-
-  @override
-  State<CropDetailScreen> createState() => _CropDetailScreenState();
-}
-
-class _CropDetailScreenState extends State<CropDetailScreen> {
-  late Future<_FarmerDetails> _detailsFuture;
-
-  @override
-  void initState() {
-    super.initState();
-    _detailsFuture = _fetchFarmerDetails(widget.crop.farmerId);
-  }
-
-  Future<_FarmerDetails> _fetchFarmerDetails(String farmerId) async {
-    try {
-      final FirebaseFirestore firestore = FirebaseFirestore.instance;
-      final DocumentSnapshot<Map<String, dynamic>> farmerDoc =
-          await firestore.collection('farmers').doc(farmerId).get();
-      final QuerySnapshot<Map<String, dynamic>> farmQuery = await firestore
-          .collection('farms')
-          .where('farmerId', isEqualTo: farmerId)
-          .limit(1)
-          .get();
-
-      final Map<String, dynamic>? farmerData = farmerDoc.data();
-      final Map<String, dynamic>? farmData = farmQuery.docs.isEmpty ? null : farmQuery.docs.first.data();
-
-      return _FarmerDetails(
-        name: (farmerData?['name'] as String?) ?? 'Unknown farmer',
-        phone: farmerData?['phone'] as String?,
-        location: farmData?['address'] as String?,
-      );
-    } catch (_) {
-      return const _FarmerDetails(name: 'Unknown farmer', phone: null, location: null);
-    }
-  }
+  final CropEntity? crop;
 
   @override
   Widget build(BuildContext context) {
-    final CropEntity crop = widget.crop;
+    final Object? arg = ModalRoute.of(context)?.settings.arguments;
+    final String? cropId = arg is String ? arg : null;
+    final CropEntity? argCrop = arg is CropEntity ? arg : null;
+
+    final CropEntity fallback = CropEntity(
+      id: '',
+      farmerId: '',
+      name: 'Crop not found',
+      quantity: 0,
+      unit: 'kg',
+      pricePerUnit: 0,
+      listedAt: DateTime.now(),
+      status: 'sold',
+      description: 'This crop listing could not be loaded.',
+    );
+
+    final CropEntity selectedCrop = crop ??
+        argCrop ??
+        context.read<CropProvider>().crops.firstWhere(
+              (CropEntity c) => c.id == cropId,
+              orElse: () => fallback,
+            );
 
     return Scaffold(
       backgroundColor: AppColors.backgroundCream,
@@ -65,95 +44,137 @@ class _CropDetailScreenState extends State<CropDetailScreen> {
         children: <Widget>[
           ListView(
             children: <Widget>[
-              _buildHeroImage(crop),
+              Hero(
+                tag: 'crop_${selectedCrop.id}',
+                child: _buildHeroImage(selectedCrop),
+              ),
               Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     Text(
-                      crop.name,
+                      selectedCrop.name,
                       style: const TextStyle(
                         fontFamily: 'Poppins',
                         fontWeight: FontWeight.w700,
-                        fontSize: 24,
+                        fontSize: 22,
                         color: AppColors.navyText,
                       ),
                     ),
                     const SizedBox(height: 8),
-                    Text(
-                      '${crop.quantity.toStringAsFixed(crop.quantity % 1 == 0 ? 0 : 1)} ${crop.unit} • R ${crop.pricePerUnit.toStringAsFixed(2)} / ${crop.unit}',
-                      style: const TextStyle(
-                        fontFamily: 'Nunito Sans',
-                        color: AppColors.primaryGreen,
-                        fontWeight: FontWeight.w700,
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: AppColors.primaryGreenLight.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                      child: Text(
+                        'R ${selectedCrop.pricePerUnit.toStringAsFixed(2)} per ${selectedCrop.unit}',
+                        style: const TextStyle(
+                          fontFamily: 'NunitoSans',
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.primaryGreenDark,
+                        ),
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    FutureBuilder<_FarmerDetails>(
-                      future: _detailsFuture,
-                      builder: (BuildContext context, AsyncSnapshot<_FarmerDetails> snapshot) {
-                        final _FarmerDetails details = snapshot.data ??
-                            const _FarmerDetails(name: 'Loading farmer...', phone: null, location: null);
-                        return _buildFarmerCard(details);
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    _buildInfoCard(
-                      title: 'Quantity available',
-                      value:
-                          '${crop.quantity.toStringAsFixed(crop.quantity % 1 == 0 ? 0 : 1)} ${crop.unit}',
-                    ),
                     const SizedBox(height: 12),
-                    _buildInfoCard(
-                      title: 'Description',
-                      value: (crop.description ?? '').isEmpty
-                          ? 'No description provided.'
-                          : crop.description!,
+                    Text(
+                      'Quantity available: ${selectedCrop.quantity} ${selectedCrop.unit}',
+                      style: const TextStyle(
+                        fontFamily: 'NunitoSans',
+                        fontSize: 15,
+                        color: AppColors.navyText,
+                      ),
                     ),
-                    const SizedBox(height: 12),
-                    _buildInfoCard(
-                      title: 'Listing dates',
-                      value:
-                          'Listed: ${_formatDate(crop.listedAt)}\nExpiry: ${crop.expiresAt == null ? 'N/A' : _formatDate(crop.expiresAt!)}',
+                    const SizedBox(height: 8),
+                    _statusChip(selectedCrop),
+                    const SizedBox(height: 16),
+                    if ((selectedCrop.description ?? '').trim().isNotEmpty) ...<Widget>[
+                      const Text(
+                        'Description',
+                        style: TextStyle(
+                          fontFamily: 'Poppins',
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
+                          color: AppColors.navyText,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        selectedCrop.description!,
+                        style: const TextStyle(
+                          fontFamily: 'NunitoSans',
+                          color: AppColors.mutedText,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+                    Text(
+                      'Listed: ${_formatDate(selectedCrop.listedAt)}',
+                      style: const TextStyle(
+                        fontFamily: 'NunitoSans',
+                        color: AppColors.navyText,
+                      ),
                     ),
-                    const SizedBox(height: 18),
-                    FutureBuilder<_FarmerDetails>(
-                      future: _detailsFuture,
-                      builder: (BuildContext context, AsyncSnapshot<_FarmerDetails> snapshot) {
-                        final String phone = snapshot.data?.phone ?? 'Phone not available yet';
-                        return SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.accentAmber,
-                              foregroundColor: AppColors.navyText,
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                            ),
-                            onPressed: () {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Contact: $phone')),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Expiry: ${selectedCrop.expiresAt == null ? 'N/A' : _formatDate(selectedCrop.expiresAt!)}',
+                      style: const TextStyle(
+                        fontFamily: 'NunitoSans',
+                        color: AppColors.navyText,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    const Divider(),
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.accentAmber,
+                          foregroundColor: AppColors.navyText,
+                        ),
+                        onPressed: () async {
+                          await showDialog<void>(
+                            context: context,
+                            builder: (BuildContext context) {
+                              return AlertDialog(
+                                title: const Text('Contact Farmer'),
+                                content: const Text(
+                                  'Feature coming soon - contact via phone',
+                                  style: TextStyle(fontFamily: 'NunitoSans'),
+                                ),
+                                actions: <Widget>[
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(context),
+                                    child: const Text('OK'),
+                                  ),
+                                ],
                               );
                             },
-                            child: const Text('Contact Farmer'),
-                          ),
-                        );
-                      },
+                          );
+                        },
+                        icon: const Icon(Icons.call_outlined),
+                        label: const Text('Contact Farmer'),
+                      ),
                     ),
                   ],
                 ),
               ),
             ],
           ),
-          Positioned(
-            top: 42,
-            left: 16,
-            child: Material(
-              color: Colors.white,
-              shape: const CircleBorder(),
-              child: IconButton(
-                onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.arrow_back, color: AppColors.navyText),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Material(
+                color: Colors.white,
+                shape: const CircleBorder(),
+                child: IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.arrow_back, color: AppColors.navyText),
+                ),
               ),
             ),
           ),
@@ -163,112 +184,81 @@ class _CropDetailScreenState extends State<CropDetailScreen> {
   }
 
   Widget _buildHeroImage(CropEntity crop) {
-    Widget child;
-
     if (crop.imageUrl != null && crop.imageUrl!.isNotEmpty) {
-      child = CachedNetworkImage(
+      return CachedNetworkImage(
         imageUrl: crop.imageUrl!,
         width: double.infinity,
-        height: 240,
+        height: 220,
         fit: BoxFit.cover,
-      );
-    } else if (crop.localImagePath != null && crop.localImagePath!.isNotEmpty) {
-      child = Image.file(
-        File(crop.localImagePath!),
-        width: double.infinity,
-        height: 240,
-        fit: BoxFit.cover,
-      );
-    } else {
-      child = Container(
-        height: 240,
-        color: AppColors.surfaceMist,
-        child: const Center(
-          child: Icon(Icons.image_outlined, size: 48, color: AppColors.mutedText),
-        ),
       );
     }
 
-    return Hero(tag: 'crop_${crop.id}', child: child);
-  }
+    if (crop.localImagePath != null && crop.localImagePath!.isNotEmpty) {
+      return Image.file(
+        File(crop.localImagePath!),
+        width: double.infinity,
+        height: 220,
+        fit: BoxFit.cover,
+      );
+    }
 
-  Widget _buildFarmerCard(_FarmerDetails details) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(
-            details.name,
-            style: const TextStyle(
-              fontFamily: 'Poppins',
-              fontWeight: FontWeight.w600,
-              color: AppColors.navyText,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            details.location ?? 'Farm location not tagged',
-            style: const TextStyle(
-              fontFamily: 'Nunito Sans',
-              color: AppColors.mutedText,
-            ),
-          ),
-        ],
+      height: 220,
+      color: AppColors.primaryGreenLight.withValues(alpha: 0.2),
+      child: const Center(
+        child: Icon(
+          Icons.grass_outlined,
+          color: AppColors.primaryGreenDark,
+          size: 48,
+        ),
       ),
     );
   }
 
-  Widget _buildInfoCard({required String title, required String value}) {
+  Widget _statusChip(CropEntity crop) {
+    final bool expiringSoon = crop.expiresAt != null &&
+        crop.status == 'active' &&
+        crop.expiresAt!.difference(DateTime.now()).inDays <= 2;
+
+    String label;
+    Color bg;
+    Color fg;
+    if (crop.status == 'sold') {
+      label = 'Sold';
+      bg = const Color(0xFFE5E7EB);
+      fg = const Color(0xFF4B5563);
+    } else if (expiringSoon) {
+      label = 'Expiring soon';
+      bg = const Color(0xFFFFEDD5);
+      fg = const Color(0xFF9A3412);
+    } else {
+      label = 'Active';
+      bg = const Color(0xFFDCFCE7);
+      fg = const Color(0xFF166534);
+    }
+
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        color: bg,
+        borderRadius: BorderRadius.circular(99),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(
-            title,
-            style: const TextStyle(
-              fontFamily: 'Nunito Sans',
-              fontWeight: FontWeight.w700,
-              color: AppColors.navyText,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            value,
-            style: const TextStyle(
-              fontFamily: 'Nunito Sans',
-              color: AppColors.mutedText,
-            ),
-          ),
-        ],
+      child: Text(
+        label,
+        style: TextStyle(
+          fontFamily: 'NunitoSans',
+          color: fg,
+          fontWeight: FontWeight.w700,
+          fontSize: 12,
+        ),
       ),
     );
   }
 
   String _formatDate(DateTime date) {
-    return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
+    return '${date.day.toString().padLeft(2, '0')}/'
+        '${date.month.toString().padLeft(2, '0')}/'
+        '${date.year}';
   }
-}
-
-class _FarmerDetails {
-  const _FarmerDetails({
-    required this.name,
-    required this.phone,
-    required this.location,
-  });
-
-  final String name;
-  final String? phone;
-  final String? location;
 }

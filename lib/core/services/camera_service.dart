@@ -150,11 +150,17 @@ class CameraService {
 
   Future<File?> captureAndCompress(BuildContext context) async {
     final bool shouldContinue = await showExplanationDialog(context);
+    if (!context.mounted) {
+      return null;
+    }
     if (!shouldContinue) {
       return null;
     }
 
     final PermissionStatus currentStatus = await Permission.camera.status;
+    if (!context.mounted) {
+      return null;
+    }
     if (currentStatus.isPermanentlyDenied) {
       await handlePermanentlyDenied(context);
       return null;
@@ -162,8 +168,14 @@ class CameraService {
 
     if (!currentStatus.isGranted) {
       final bool granted = await requestPermission();
+      if (!context.mounted) {
+        return null;
+      }
       if (!granted) {
         final PermissionStatus statusAfterRequest = await Permission.camera.status;
+        if (!context.mounted) {
+          return null;
+        }
         if (statusAfterRequest.isPermanentlyDenied) {
           await handlePermanentlyDenied(context);
         }

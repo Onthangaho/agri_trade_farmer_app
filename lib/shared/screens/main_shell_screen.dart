@@ -32,9 +32,13 @@ class _MainShellScreenState extends State<MainShellScreen> {
     ProfileScreen(),
   ];
 
+  void _openAddCrop() {
+    Navigator.pushNamed(context, RouteNames.addCrop);
+  }
+
   void _onTabSelected(int index) {
     if (index == 2) {
-      Navigator.pushNamed(context, RouteNames.addCrop);
+      _openAddCrop();
       return;
     }
     setState(() {
@@ -43,6 +47,7 @@ class _MainShellScreenState extends State<MainShellScreen> {
   }
 
   void _openRoute(String routeName) {
+    Navigator.pop(context);
     Navigator.pushNamed(context, routeName);
   }
 
@@ -57,6 +62,10 @@ class _MainShellScreenState extends State<MainShellScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final user = context.read<AuthProvider>().currentUser;
+    final String name = user?.displayName ?? 'AgriTrade Farmer';
+    final String email = user?.email ?? '';
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('AgriTrade'),
@@ -72,13 +81,54 @@ class _MainShellScreenState extends State<MainShellScreen> {
               children: <Widget>[
                 UserAccountsDrawerHeader(
                   decoration: const BoxDecoration(color: AppColors.primaryGreenDark),
-                  accountName: const Text('AgriTrade Farmer'),
-                  accountEmail: const Text('farmer@agritrade.co.za'),
+                  accountName: Text(name),
+                  accountEmail: Text(email),
                   currentAccountPicture: CircleAvatar(
                     backgroundColor: AppColors.accentAmber,
                     child: Icon(Icons.person, color: Theme.of(context).colorScheme.onSecondary),
                   ),
                 ),
+                ListTile(
+                  iconColor: Colors.white,
+                  textColor: Colors.white,
+                  leading: const Icon(Icons.storefront_outlined),
+                  title: const Text('Marketplace'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _onTabSelected(0);
+                  },
+                ),
+                ListTile(
+                  iconColor: Colors.white,
+                  textColor: Colors.white,
+                  leading: const Icon(Icons.grass_outlined),
+                  title: const Text('My Crops'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _onTabSelected(1);
+                  },
+                ),
+                ListTile(
+                  iconColor: Colors.white,
+                  textColor: Colors.white,
+                  leading: const Icon(Icons.location_on_outlined),
+                  title: const Text('My Farm'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _onTabSelected(3);
+                  },
+                ),
+                ListTile(
+                  iconColor: Colors.white,
+                  textColor: Colors.white,
+                  leading: const Icon(Icons.person_outline),
+                  title: const Text('Profile'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _onTabSelected(4);
+                  },
+                ),
+                const Divider(color: Colors.white24),
                 ListTile(
                   iconColor: Colors.white,
                   textColor: Colors.white,
@@ -94,7 +144,6 @@ class _MainShellScreenState extends State<MainShellScreen> {
                   onTap: () => _openRoute(RouteNames.messages),
                 ),
                 const Spacer(),
-                const Divider(color: Colors.white24),
                 ListTile(
                   iconColor: Colors.white,
                   textColor: Colors.white,
@@ -109,9 +158,16 @@ class _MainShellScreenState extends State<MainShellScreen> {
       ),
       body: _tabs[_selectedIndex],
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => Navigator.pushNamed(context, RouteNames.addCrop),
-        icon: const Icon(Icons.add),
-        label: const Text('Add Crop'),
+        heroTag: 'main_add_crop_fab',
+        elevation: 4,
+        onPressed: _openAddCrop,
+        icon: const Icon(Icons.add_circle_outline),
+        label: const Text(
+          'List Crop',
+          style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w600),
+        ),
+        backgroundColor: AppColors.primaryGreen,
+        foregroundColor: Colors.white,
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
       bottomNavigationBar: BottomNavigationBar(

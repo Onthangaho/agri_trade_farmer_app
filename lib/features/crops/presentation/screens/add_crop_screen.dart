@@ -1,18 +1,14 @@
-// lib/features/crops/presentation/screens/add_crop_screen.dart
-/// Form screen for creating a crop listing and saving it offline-first.
-
-import 'dart:async';
 import 'dart:io';
 
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/constants/app_colors.dart';
-import '../../../../core/services/camera_service.dart';
-import '../../../../core/services/storage_service.dart';
-import '../../../../injection.dart' as di;
+import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../domain/entities/crop_entity.dart';
 import '../providers/crop_provider.dart';
 
@@ -29,21 +25,16 @@ class _AddCropScreenState extends State<AddCropScreen> {
   final TextEditingController _quantityController = TextEditingController();
   final TextEditingController _priceController = TextEditingController();
   final TextEditingController _descriptionController = TextEditingController();
-  final TextEditingController _expiryController = TextEditingController();
-  final Uuid _uuid = const Uuid();
-  final CameraService _cameraService = di.getIt<CameraService>();
-  final StorageService _storageService = di.getIt<StorageService>();
-  final Connectivity _connectivity = Connectivity();
+  final TextEditingController _expiryDateController = TextEditingController();
 
-  // TODO: Replace with authenticated farmer id from auth state.
-  static const String _currentFarmerId = 'demo-farmer-id';
+  final List<String> _units = <String>['kg', 'bags', 'crates', 'litres', 'bunches'];
+  final ImagePicker _picker = ImagePicker();
 
-  String _unit = 'kg';
-  DateTime? _expiresAt;
-  File? _selectedImage;
-  bool _isProcessingImage = false;
-  bool _isUploadingImage = false;
-  double _uploadProgress = 0;
+  String _selectedUnit = 'kg';
+  DateTime? _expiryDate;
+  File? _selectedImageFile;
+  String? _localImagePath;
+  bool _isPickingImage = false;
 
   @override
   void dispose() {
@@ -51,135 +42,230 @@ class _AddCropScreenState extends State<AddCropScreen> {
     _quantityController.dispose();
     _priceController.dispose();
     _descriptionController.dispose();
-    _expiryController.dispose();
+    _expiryDateController.dispose();
     super.dispose();
   }
 
-  Future<bool> _isOnline() async {
-    final List<ConnectivityResult> statuses = await _connectivity.checkConnectivity();
-    return statuses.any((ConnectivityResult result) => result != ConnectivityResult.none);
-  }
-
-  Future<void> _captureImage() async {
-    setState(() {
-      _isProcessingImage = true;
-    });
-
-    try {
-      final File? picked = await _cameraService.captureAndCompress(context);
-      if (!mounted || picked == null) {
-        return;
-      }
-
-      setState(() {
-        _selectedImage = picked;
-      });
-    } finally {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _isProcessingImage = false;
-      });
-    }
-  }
-
-  Future<void> _pickDate() async {
-    final DateTime now = DateTime.now();
-    final DateTime? picked = await showDatePicker(
+  Future<void> _pickImage() async {
+    final ImageSource? source = await showModalBottomSheet<ImageSource>(
       context: context,
-      initialDate: now,
-      firstDate: now,
-      lastDate: now.add(const Duration(days: 365)),
-    );
-    if (picked == null) {
-      return;
-    }
-    setState(() {
-      _expiresAt = picked;
-      _expiryController.text = '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
-    });
-  }
-
-  Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
-
-    final CropProvider provider = context.read<CropProvider>();
-    final String cropId = _uuid.v4();
-    final bool online = await _isOnline();
-    String? imageUrl;
-    String? localImagePath;
-
-    if (_selectedImage != null) {
-      if (online) {
-        setState(() {
-          _isUploadingImage = true;
-          _uploadProgress = 0;
-        });
-
-        StreamSubscription<double>? progressSubscription;
-        try {
-          final CropImageUploadTask uploadTask = _storageService.uploadCropImage(cropId, _selectedImage!);
-          progressSubscription = uploadTask.progress.listen((double progress) {
-            if (!mounted) {
-              return;
-            }
-            setState(() {
-              _uploadProgress = progress;
-            });
-          });
-          imageUrl = await uploadTask.downloadUrl;
-        } catch (_) {
-          localImagePath = _selectedImage!.path;
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Image upload failed. It will sync later.')),
-            );
-          }
-        } finally {
-          await progressSubscription?.cancel();
-          if (mounted) {
-            setState(() {
-              _isUploadingImage = false;
-            });
-          }
-        }
-      } else {
-        localImagePath = _selectedImage!.path;
-      }
-    }
-
-    final CropEntity crop = CropEntity(
-      id: cropId,
-      farmerId: _currentFarmerId,
-      name: _nameController.text.trim(),
-      quantity: double.parse(_quantityController.text.trim()),
-      unit: _unit,
-      pricePerUnit: double.parse(_priceController.text.trim()),
-      imageUrl: imageUrl,
-      localImagePath: localImagePath,
-      description: _descriptionController.text.trim().isEmpty
-          ? null
-          : _descriptionController.text.trim(),
-      listedAt: DateTime.now(),
-      expiresAt: _expiresAt,
-      status: 'active',
+      builder: (BuildContext context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              ListTile(
+                leading: const Icon(Icons.camera_alt_outlined),
+                title: const Text('Use Camera'),
+                onTap: () => Navigator.pop(context, ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined),
+                title: const Text('Choose from Gallery'),
+                onTap: () => Navigator.pop(context, ImageSource.gallery),
+              ),
+            ],
+          ),
+        );
+      },
     );
 
-    await provider.saveCrop(crop, imageFile: _selectedImage);
+    if (source == null) {
+      return;
+    }
     if (!mounted) {
       return;
     }
 
-    if (provider.errorMessage == null || provider.errorMessage!.contains('offline')) {
+    if (source == ImageSource.camera) {
+      final bool proceed = await showDialog<bool>(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text(
+              'Camera needed',
+              style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w600),
+            ),
+            content: const Text(
+              'AgriTrade uses your camera so buyers can see your crops clearly.',
+              style: TextStyle(fontFamily: 'NunitoSans'),
+            ),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Not now'),
+              ),
+              ElevatedButton.icon(
+                onPressed: () => Navigator.pop(context, true),
+                icon: const Icon(Icons.check_circle_outline),
+                label: const Text('Allow'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+
+      if (!proceed) {
+        return;
+      }
+    }
+
+    setState(() {
+      _isPickingImage = true;
+    });
+
+    try {
+      if (source == ImageSource.camera) {
+        final PermissionStatus status = await Permission.camera.request();
+        if (status.isPermanentlyDenied) {
+          await openAppSettings();
+          return;
+        }
+        if (!status.isGranted) {
+          return;
+        }
+      }
+
+      final XFile? file = await _picker.pickImage(
+        source: source,
+        imageQuality: 85,
+        maxWidth: 1024,
+        maxHeight: 1024,
+      );
+      if (file == null) {
+        return;
+      }
+
+      final XFile? compressed = await FlutterImageCompress.compressAndGetFile(
+        file.path,
+        '${file.path}_compressed.jpg',
+        quality: 80,
+        minWidth: 800,
+        minHeight: 800,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      if (compressed != null) {
+        final File compressedFile = File(compressed.path);
+        final int sizeInBytes = await compressedFile.length();
+
+        // Ensure mobile demo uploads remain lightweight and reliable.
+        if (sizeInBytes > 200 * 1024) {
+          final XFile? tighterCompressed = await FlutterImageCompress.compressAndGetFile(
+            compressed.path,
+            '${compressed.path}_200kb.jpg',
+            quality: 65,
+            minWidth: 720,
+            minHeight: 720,
+          );
+          if (tighterCompressed != null) {
+            setState(() {
+              _selectedImageFile = File(tighterCompressed.path);
+              _localImagePath = tighterCompressed.path;
+            });
+            return;
+          }
+        }
+
+        setState(() {
+          _selectedImageFile = compressedFile;
+          _localImagePath = compressed.path;
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isPickingImage = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _pickExpiryDate() async {
+    final DateTime now = DateTime.now();
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _expiryDate ?? now,
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 365)),
+    );
+
+    if (picked == null) {
+      return;
+    }
+
+    setState(() {
+      _expiryDate = picked;
+      _expiryDateController.text =
+          '${picked.day.toString().padLeft(2, '0')}/'
+          '${picked.month.toString().padLeft(2, '0')}/'
+          '${picked.year}';
+    });
+  }
+
+  Future<void> _listCrop() async {
+    if (!(_formKey.currentState?.validate() ?? false)) {
+      return;
+    }
+    FocusScope.of(context).unfocus();
+
+    final String farmerId = context.read<AuthProvider>().currentUserId;
+    if (farmerId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please log in first.')),
+      );
+      return;
+    }
+
+    final CropEntity crop = CropEntity(
+      id: const Uuid().v4(),
+      farmerId: farmerId,
+      name: _nameController.text.trim(),
+      quantity: double.parse(_quantityController.text.trim()),
+      unit: _selectedUnit,
+      pricePerUnit: double.parse(_priceController.text.trim()),
+      imageUrl: null,
+      localImagePath: _localImagePath,
+      description: _descriptionController.text.trim().isEmpty
+          ? null
+          : _descriptionController.text.trim(),
+      listedAt: DateTime.now(),
+      expiresAt: _expiryDate,
+      status: 'active',
+    );
+
+    final CropProvider cropProvider = context.read<CropProvider>();
+    final bool success = await cropProvider.saveCrop(crop);
+    if (!mounted) {
+      return;
+    }
+
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Crop listed successfully!',
+            style: TextStyle(fontFamily: 'NunitoSans'),
+          ),
+          backgroundColor: AppColors.successGreen,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
       Navigator.pop(context);
       return;
     }
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(provider.errorMessage!)),
+      SnackBar(
+        content: Text(
+          cropProvider.errorMessage ?? 'Failed',
+          style: const TextStyle(fontFamily: 'NunitoSans'),
+        ),
+        backgroundColor: AppColors.errorTerracotta,
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 
@@ -188,7 +274,19 @@ class _AddCropScreenState extends State<AddCropScreen> {
     return Consumer<CropProvider>(
       builder: (BuildContext context, CropProvider provider, Widget? child) {
         return Scaffold(
-          appBar: AppBar(title: const Text('Add Crop Listing')),
+          backgroundColor: AppColors.backgroundCream,
+          appBar: AppBar(
+            backgroundColor: AppColors.primaryGreen,
+            iconTheme: const IconThemeData(color: Colors.white),
+            title: const Text(
+              'Add Crop Listing',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
+            ),
+          ),
           body: SingleChildScrollView(
             padding: const EdgeInsets.all(16),
             child: Form(
@@ -198,10 +296,15 @@ class _AddCropScreenState extends State<AddCropScreen> {
                 children: <Widget>[
                   TextFormField(
                     controller: _nameController,
+                    textInputAction: TextInputAction.next,
                     decoration: const InputDecoration(labelText: 'Crop name'),
                     validator: (String? value) {
-                      if ((value ?? '').trim().isEmpty) {
+                      final String text = (value ?? '').trim();
+                      if (text.isEmpty) {
                         return 'Crop name is required';
+                      }
+                      if (text.length < 2) {
+                        return 'Crop name must be at least 2 characters';
                       }
                       return null;
                     },
@@ -209,45 +312,48 @@ class _AddCropScreenState extends State<AddCropScreen> {
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _quantityController,
+                    textInputAction: TextInputAction.next,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                     decoration: const InputDecoration(labelText: 'Quantity'),
                     validator: (String? value) {
                       final double? parsed = double.tryParse((value ?? '').trim());
                       if (parsed == null || parsed <= 0) {
-                        return 'Enter a valid quantity';
+                        return 'Quantity must be greater than 0';
                       }
                       return null;
                     },
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
-                    value: _unit,
+                    initialValue: _selectedUnit,
                     decoration: const InputDecoration(labelText: 'Unit'),
-                    items: const <DropdownMenuItem<String>>[
-                      DropdownMenuItem<String>(value: 'kg', child: Text('kg')),
-                      DropdownMenuItem<String>(value: 'bags', child: Text('bags')),
-                      DropdownMenuItem<String>(value: 'crates', child: Text('crates')),
-                      DropdownMenuItem<String>(value: 'litres', child: Text('litres')),
-                      DropdownMenuItem<String>(value: 'bunches', child: Text('bunches')),
-                    ],
+                    items: _units
+                        .map(
+                          (String unit) => DropdownMenuItem<String>(
+                            value: unit,
+                            child: Text(unit),
+                          ),
+                        )
+                        .toList(growable: false),
                     onChanged: (String? value) {
                       if (value == null) {
                         return;
                       }
                       setState(() {
-                        _unit = value;
+                        _selectedUnit = value;
                       });
                     },
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _priceController,
+                    textInputAction: TextInputAction.next,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                     decoration: const InputDecoration(labelText: 'Price per unit (ZAR)'),
                     validator: (String? value) {
                       final double? parsed = double.tryParse((value ?? '').trim());
                       if (parsed == null || parsed <= 0) {
-                        return 'Enter a valid price';
+                        return 'Price must be greater than 0';
                       }
                       return null;
                     },
@@ -256,76 +362,114 @@ class _AddCropScreenState extends State<AddCropScreen> {
                   TextFormField(
                     controller: _descriptionController,
                     minLines: 3,
-                    maxLines: 5,
+                    maxLines: 4,
                     maxLength: 200,
-                    decoration: const InputDecoration(labelText: 'Description (optional)'),
+                    textInputAction: TextInputAction.newline,
+                    decoration: const InputDecoration(
+                      labelText: 'Description (optional)',
+                      alignLabelWithHint: true,
+                    ),
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
-                    controller: _expiryController,
+                    controller: _expiryDateController,
                     readOnly: true,
                     decoration: const InputDecoration(
                       labelText: 'Expiry date (optional)',
                       suffixIcon: Icon(Icons.calendar_today_outlined),
                     ),
-                    onTap: _pickDate,
+                    onTap: _pickExpiryDate,
                   ),
                   const SizedBox(height: 16),
                   Container(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       color: AppColors.surfaceMist,
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(14),
                     ),
                     child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: <Widget>[
-                        if (_selectedImage != null)
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(16),
-                            child: Image.file(
-                              _selectedImage!,
-                              height: 180,
-                              width: double.infinity,
-                              fit: BoxFit.cover,
+                        if (_selectedImageFile == null)
+                          Semantics(
+                            label: 'Take photo of crop',
+                            button: true,
+                            child: OutlinedButton.icon(
+                              onPressed: _isPickingImage ? null : _pickImage,
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size(double.infinity, 140),
+                                side: const BorderSide(color: AppColors.primaryGreenLight),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              icon: _isPickingImage
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                    )
+                                  : const Icon(Icons.camera_alt_outlined),
+                              label: const Text('Add Photo (Camera/Gallery)'),
                             ),
                           )
                         else
-                          const Icon(Icons.camera_alt_outlined, color: AppColors.mutedText),
-                        const SizedBox(height: 8),
-                        const Text('Add photo'),
-                        if (_isUploadingImage)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Text(
-                              'Uploading ${(100 * _uploadProgress).toStringAsFixed(0)}%',
-                              style: const TextStyle(color: AppColors.mutedText),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Image.file(
+                              _selectedImageFile!,
+                              height: 190,
+                              width: double.infinity,
+                              fit: BoxFit.cover,
                             ),
                           ),
-                        const SizedBox(height: 8),
-                        OutlinedButton.icon(
-                          onPressed: _isProcessingImage ? null : _captureImage,
-                          icon: _isProcessingImage
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                )
-                              : const Icon(Icons.add_a_photo_outlined),
-                          label: Text(_selectedImage == null ? 'Take or choose photo' : 'Change photo'),
-                        ),
+                        if (_selectedImageFile != null) ...<Widget>[
+                          const SizedBox(height: 8),
+                          Semantics(
+                            label: 'Take photo of crop',
+                            button: true,
+                            child: TextButton.icon(
+                              onPressed: _isPickingImage ? null : _pickImage,
+                              icon: _isPickingImage
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                    )
+                                  : const Icon(Icons.camera_alt_outlined),
+                              label: const Text('Change photo'),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
                   const SizedBox(height: 20),
-                  ElevatedButton(
-                    onPressed: (provider.isSaving || _isUploadingImage) ? null : _submit,
-                    child: (provider.isSaving || _isUploadingImage)
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                          )
-                        : const Text('List Crop'),
+                  SizedBox(
+                    height: 56,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primaryGreen,
+                        foregroundColor: Colors.white,
+                        textStyle: const TextStyle(
+                          fontFamily: 'Poppins',
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      onPressed:
+                          provider.isSaving || _isPickingImage ? null : _listCrop,
+                      icon: provider.isSaving
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.upload_outlined),
+                      label: Text(provider.isSaving ? 'Listing...' : 'List Crop'),
+                    ),
                   ),
                 ],
               ),

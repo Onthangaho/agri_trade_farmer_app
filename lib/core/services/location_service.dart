@@ -39,6 +39,9 @@ class LocationService {
 
   Future<bool> checkLocationServicesEnabled(BuildContext context) async {
     final bool enabled = await Geolocator.isLocationServiceEnabled();
+    if (!context.mounted) {
+      return false;
+    }
     if (enabled) {
       return true;
     }
@@ -106,16 +109,25 @@ class LocationService {
 
   Future<Position?> getCurrentPosition(BuildContext context) async {
     final bool accepted = await showExplanationDialog(context);
+    if (!context.mounted) {
+      return null;
+    }
     if (!accepted) {
       return null;
     }
 
     final bool enabled = await checkLocationServicesEnabled(context);
+    if (!context.mounted) {
+      return null;
+    }
     if (!enabled) {
       return null;
     }
 
     final PermissionStatus permissionStatus = await Permission.locationWhenInUse.status;
+    if (!context.mounted) {
+      return null;
+    }
     if (permissionStatus.isPermanentlyDenied) {
       await handlePermanentlyDenied(context);
       return null;
@@ -123,8 +135,14 @@ class LocationService {
 
     if (!permissionStatus.isGranted) {
       final bool granted = await requestPermission();
+      if (!context.mounted) {
+        return null;
+      }
       if (!granted) {
         final PermissionStatus latest = await Permission.locationWhenInUse.status;
+        if (!context.mounted) {
+          return null;
+        }
         if (latest.isPermanentlyDenied) {
           await handlePermanentlyDenied(context);
         }

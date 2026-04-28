@@ -49,7 +49,6 @@ Future<void> main() async {
   if (!kIsWeb) {
     await Workmanager().initialize(
       callbackDispatcher,
-      isInDebugMode: false,
     );
     await Workmanager().registerPeriodicTask(
       _backgroundSyncTaskName,

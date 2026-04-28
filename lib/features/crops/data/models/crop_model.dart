@@ -1,5 +1,5 @@
 // lib/features/crops/data/models/crop_model.dart
-/// Data model for CropEntity serialization to SQLite and Firestore formats.
+// Data model for CropEntity serialization to SQLite and Firestore formats.
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -121,6 +121,7 @@ class CropModel extends CropEntity {
     };
   }
 
+  @override
   CropModel copyWith({
     String? id,
     String? farmerId,

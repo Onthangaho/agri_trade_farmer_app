@@ -1,12 +1,14 @@
-// lib/features/farms/presentation/providers/farm_provider.dart
-/// Presentation provider for farm loading, saving, and GPS tagging.
+import 'dart:async';
 
-import 'package:flutter/foundation.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:logger/logger.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/services/location_service.dart';
+import '../../../../shared/database/database_constants.dart';
+import '../../../../shared/database/database_helper.dart';
 import '../../domain/entities/farm_entity.dart';
 import '../../domain/repositories/farm_repository.dart';
 
@@ -14,37 +16,118 @@ class FarmProvider extends ChangeNotifier {
   FarmProvider({
     required FarmRepository farmRepository,
     required LocationService locationService,
-  })  : _farmRepository = farmRepository,
-        _locationService = locationService;
+    FirebaseFirestore? firestore,
+    DatabaseHelper? databaseHelper,
+    Logger? logger,
+  })  : _firestore = firestore ?? FirebaseFirestore.instance,
+        _databaseHelper = databaseHelper ?? DatabaseHelper.instance,
+        _logger = logger ?? Logger();
 
-  final FarmRepository _farmRepository;
-  final LocationService _locationService;
-  final Logger _logger = Logger();
+  final FirebaseFirestore _firestore;
+  final DatabaseHelper _databaseHelper;
+  final Logger _logger;
   final Uuid _uuid = const Uuid();
 
-  FarmEntity? _farm;
+  Map<String, dynamic>? _farmData;
   bool _isLoading = false;
+  bool _isSaving = false;
   bool _isTagging = false;
   String? _errorMessage;
-  bool _locationTagged = false;
+  String? _successMessage;
 
-  FarmEntity? get farm => _farm;
   bool get isLoading => _isLoading;
+  bool get isSaving => _isSaving;
   bool get isTagging => _isTagging;
   String? get errorMessage => _errorMessage;
-  bool get locationTagged => _locationTagged;
+  String? get successMessage => _successMessage;
+  bool get hasFarm => _farmData != null;
+  bool get hasLocation =>
+      (_farmData?['latitude'] != null) && (_farmData?['longitude'] != null);
+  double? get latitude => (_farmData?['latitude'] as num?)?.toDouble();
+  double? get longitude => (_farmData?['longitude'] as num?)?.toDouble();
+  String get farmName => (_farmData?['name'] as String?) ?? '';
+  String get address => (_farmData?['address'] as String?) ?? '';
+  bool get locationTagged => hasLocation;
 
-  Future<void> loadFarm(String farmerId) async {
+  FarmEntity? get farm {
+    final Map<String, dynamic>? data = _farmData;
+    if (data == null) {
+      return null;
+    }
+    return FarmEntity(
+      id: (data['id'] as String?) ?? '',
+      farmerId: (data['farmerId'] as String?) ?? '',
+      name: (data['name'] as String?) ?? '',
+      latitude: (data['latitude'] as num?)?.toDouble(),
+      longitude: (data['longitude'] as num?)?.toDouble(),
+      sizeHa: (data['sizeHa'] as num?)?.toDouble(),
+      address: data['address'] as String?,
+      updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+    );
+  }
+
+  Future<void> loadFarm(String userId) async {
+    if (userId.isEmpty) {
+      _farmData = null;
+      _errorMessage = null;
+      notifyListeners();
+      return;
+    }
+
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
-      _farm = await _farmRepository.getFarm(farmerId);
-      _locationTagged = _farm?.isTagged ?? false;
-      _errorMessage = null;
+      final Map<String, dynamic>? localFarm =
+          await _databaseHelper.getFarmByUserId(userId);
+      if (localFarm != null) {
+        _farmData = _fromLocalRow(localFarm);
+        notifyListeners();
+      }
+
+      final DocumentSnapshot<Map<String, dynamic>> doc =
+          await _firestore.collection('farms').doc(userId).get();
+      if (doc.exists && doc.data() != null) {
+        _farmData = <String, dynamic>{
+          'id': doc.id,
+          ...doc.data()!,
+        };
+        await _databaseHelper.insertFarm(<String, dynamic>{
+          DatabaseConstants.columnId: doc.id,
+          DatabaseConstants.columnFarmerId:
+              (doc.data()!['farmerId'] as String?) ?? userId,
+          DatabaseConstants.columnName:
+              (doc.data()!['name'] as String?) ?? 'My Farm',
+          DatabaseConstants.columnLatitude: doc.data()!['latitude'],
+          DatabaseConstants.columnLongitude: doc.data()!['longitude'],
+          DatabaseConstants.columnSizeHa: doc.data()!['sizeHa'],
+          DatabaseConstants.columnAddress: doc.data()!['address'],
+          DatabaseConstants.columnUpdatedAt: DateTime.now().millisecondsSinceEpoch,
+          DatabaseConstants.columnSynced: 1,
+        });
+      } else {
+        _farmData = localFarm == null ? null : _fromLocalRow(localFarm);
+      }
+    } on FirebaseException catch (error, stackTrace) {
+      final Map<String, dynamic>? localFarm =
+          await _databaseHelper.getFarmByUserId(userId);
+      _farmData = localFarm == null ? null : _fromLocalRow(localFarm);
+      if (_farmData == null) {
+        _errorMessage = error.code == 'unavailable'
+            ? 'You are offline. Add your farm details and sync later.'
+            : 'Could not load farm details right now.';
+      } else if (error.code == 'unavailable') {
+        _errorMessage = null;
+      } else {
+        _errorMessage = 'Showing saved farm details.';
+      }
+      _logger.w('loadFarm Firebase fallback to local', error: error, stackTrace: stackTrace);
     } catch (error, stackTrace) {
-      _errorMessage = 'Could not load farm details.';
+      final Map<String, dynamic>? localFarm =
+          await _databaseHelper.getFarmByUserId(userId);
+      _farmData = localFarm == null ? null : _fromLocalRow(localFarm);
+      _errorMessage = _farmData == null ? 'Could not load farm details right now.' : null;
       _logger.e('loadFarm failed', error: error, stackTrace: stackTrace);
     } finally {
       _isLoading = false;
@@ -52,69 +135,140 @@ class FarmProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> saveFarm(FarmEntity farm) async {
-    _isLoading = true;
+  Future<bool> saveFarm(dynamic userIdOrFarm, [String? farmName, double? sizeHa]) async {
+    String userId;
+    String resolvedFarmName;
+    double? resolvedSizeHa;
+    if (userIdOrFarm is FarmEntity) {
+      userId = userIdOrFarm.farmerId;
+      resolvedFarmName = userIdOrFarm.name;
+      resolvedSizeHa = userIdOrFarm.sizeHa;
+    } else {
+      userId = (userIdOrFarm as String?) ?? '';
+      resolvedFarmName = farmName ?? '';
+      resolvedSizeHa = sizeHa;
+    }
+
+    if (userId.isEmpty) {
+      _errorMessage = 'Please log in first.';
+      notifyListeners();
+      return false;
+    }
+
+    _isSaving = true;
     _errorMessage = null;
+    _successMessage = null;
     notifyListeners();
 
+    final Map<String, dynamic> data = <String, dynamic>{
+      'farmerId': userId,
+      'name': resolvedFarmName.trim(),
+      'sizeHa': resolvedSizeHa,
+      'updatedAt': Timestamp.now(),
+    };
+
     try {
-      await _farmRepository.saveFarm(farm);
-      _farm = farm;
-      _locationTagged = _farm?.isTagged ?? false;
-      _errorMessage = null;
+      await _firestore.collection('farms').doc(userId).set(data, SetOptions(merge: true));
+
+      await _databaseHelper.insertFarm(<String, dynamic>{
+        DatabaseConstants.columnId: userId,
+        DatabaseConstants.columnFarmerId: userId,
+        DatabaseConstants.columnName: resolvedFarmName.trim(),
+        DatabaseConstants.columnLatitude: _farmData?['latitude'],
+        DatabaseConstants.columnLongitude: _farmData?['longitude'],
+        DatabaseConstants.columnSizeHa: resolvedSizeHa,
+        DatabaseConstants.columnAddress: _farmData?['address'],
+        DatabaseConstants.columnUpdatedAt: DateTime.now().millisecondsSinceEpoch,
+        DatabaseConstants.columnSynced: 1,
+      });
+
+      _farmData = <String, dynamic>{
+        ...?_farmData,
+        'id': userId,
+        ...data,
+      };
+      _successMessage = 'Farm details saved successfully.';
+      return true;
+    } on FirebaseException catch (error, stackTrace) {
+      _errorMessage = 'Could not save farm details.';
+      _logger.e('saveFarm Firebase failed', error: error, stackTrace: stackTrace);
+      return false;
     } catch (error, stackTrace) {
       _errorMessage = 'Could not save farm details.';
       _logger.e('saveFarm failed', error: error, stackTrace: stackTrace);
+      return false;
     } finally {
-      _isLoading = false;
+      _isSaving = false;
       notifyListeners();
     }
   }
 
-  Future<void> tagLocation(BuildContext context) async {
-    final FarmEntity? currentFarm = _farm;
-    if (currentFarm == null) {
+  Future<bool> tagLocation(dynamic userIdOrContext) async {
+    final String userId = userIdOrContext is String
+        ? userIdOrContext
+        : ((_farmData?['farmerId'] as String?) ?? '');
+    if (userId.isEmpty) {
       _errorMessage = 'Add your farm first before tagging location.';
       notifyListeners();
-      return;
+      return false;
     }
-
     _isTagging = true;
     _errorMessage = null;
+    _successMessage = null;
     notifyListeners();
-
     try {
-      final position = await _locationService.getCurrentPosition(context);
-      if (position == null) {
-        _errorMessage = 'Location was not captured.';
-        return;
+      final bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        _errorMessage = 'Please enable GPS in your phone settings.';
+        return false;
       }
 
-      final String address = await _locationService.getAddressFromCoordinates(
-        position.latitude,
-        position.longitude,
-      );
-      final String? resolvedAddress = address == 'Unknown location' ? null : address;
+      LocationPermission perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) {
+        _errorMessage = 'Location permission denied. Please allow in Settings.';
+        return false;
+      }
 
-      await _farmRepository.updateFarmLocation(
-        currentFarm.id,
-        position.latitude,
-        position.longitude,
-        resolvedAddress,
+      const LocationSettings settings = LocationSettings(
+        accuracy: LocationAccuracy.medium,
+        timeLimit: Duration(seconds: 15),
       );
+      final Position pos =
+          await Geolocator.getCurrentPosition(locationSettings: settings);
 
-      final FarmEntity liveFarm = _farm ?? currentFarm;
-      _farm = liveFarm.copyWith(
-        latitude: position.latitude,
-        longitude: position.longitude,
-        address: resolvedAddress,
-        updatedAt: DateTime.now(),
-      );
-      _locationTagged = _farm?.isTagged ?? false;
-      _errorMessage = null;
+      final Map<String, dynamic> data = <String, dynamic>{
+        'latitude': pos.latitude,
+        'longitude': pos.longitude,
+        'address': 'Lat: ${pos.latitude.toStringAsFixed(4)}, '
+            'Long: ${pos.longitude.toStringAsFixed(4)}',
+        'locationTaggedAt': Timestamp.now(),
+        'updatedAt': Timestamp.now(),
+      };
+
+      await FirebaseFirestore.instance
+          .collection('farms')
+          .doc(userId)
+          .set(data, SetOptions(merge: true));
+
+      _farmData = <String, dynamic>{
+        ...?_farmData,
+        'id': userId,
+        'farmerId': userId,
+        ...data,
+      };
+      _successMessage = 'Farm location tagged successfully!';
+      return true;
+    } on TimeoutException {
+      _errorMessage = 'GPS timed out. Go outside and try again.';
+      return false;
     } catch (error, stackTrace) {
-      _errorMessage = 'Could not tag farm location. Please try again.';
       _logger.e('tagLocation failed', error: error, stackTrace: stackTrace);
+      _errorMessage = 'Could not get location. Please try again.';
+      return false;
     } finally {
       _isTagging = false;
       notifyListeners();
@@ -138,5 +292,25 @@ class FarmProvider extends ChangeNotifier {
   void clearError() {
     _errorMessage = null;
     notifyListeners();
+  }
+
+  void clearSuccess() {
+    _successMessage = null;
+    notifyListeners();
+  }
+
+  Map<String, dynamic> _fromLocalRow(Map<String, dynamic> row) {
+    return <String, dynamic>{
+      'id': row[DatabaseConstants.columnId],
+      'farmerId': row[DatabaseConstants.columnFarmerId],
+      'name': row[DatabaseConstants.columnName],
+      'latitude': row[DatabaseConstants.columnLatitude],
+      'longitude': row[DatabaseConstants.columnLongitude],
+      'sizeHa': row[DatabaseConstants.columnSizeHa],
+      'address': row[DatabaseConstants.columnAddress],
+      'updatedAt': Timestamp.fromMillisecondsSinceEpoch(
+        ((row[DatabaseConstants.columnUpdatedAt] as num?) ?? 0).toInt(),
+      ),
+    };
   }
 }

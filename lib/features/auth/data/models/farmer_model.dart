@@ -88,6 +88,7 @@ class FarmerModel extends FarmerEntity {
     };
   }
 
+  @override
   FarmerModel copyWith({
     String? id,
     String? name,

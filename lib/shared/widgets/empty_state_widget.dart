@@ -10,23 +10,26 @@ class EmptyStateWidget extends StatelessWidget {
     super.key,
     required this.icon,
     required this.title,
-    required this.message,
+    required this.subtitle,
+    this.actionLabel,
+    this.onAction,
   });
 
   final IconData icon;
   final String title;
-  final String message;
+  final String subtitle;
+  final String? actionLabel;
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
     return Center(
-      
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Icon(icon, size: 72, color: AppColors.primaryGreen),
+            Icon(icon, size: 80, color: AppColors.primaryGreen),
             const SizedBox(height: 14),
             Text(
               title,
@@ -40,7 +43,7 @@ class EmptyStateWidget extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              message,
+              subtitle,
               style: const TextStyle(
                 fontFamily: 'Nunito Sans',
                 fontSize: 16,
@@ -48,6 +51,13 @@ class EmptyStateWidget extends StatelessWidget {
               ),
               textAlign: TextAlign.center,
             ),
+            if (actionLabel != null && onAction != null) ...<Widget>[
+              const SizedBox(height: 16),
+              OutlinedButton(
+                onPressed: onAction,
+                child: Text(actionLabel!),
+              ),
+            ],
           ],
         ),
       ),

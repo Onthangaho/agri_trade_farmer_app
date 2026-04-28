@@ -3,14 +3,13 @@
 
 import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:lottie/lottie.dart';
-import 'package:provider/provider.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../../routes/route_names.dart';
-import '../../../auth/presentation/providers/auth_provider.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -20,34 +19,30 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
-  Timer? _navigationTimer;
-
   @override
   void initState() {
     super.initState();
-    _scheduleNavigation();
+    _navigate();
   }
 
-  void _scheduleNavigation() {
-    _navigationTimer = Timer(const Duration(milliseconds: 2800), () {
-      if (!mounted) {
-        return;
-      }
-      _navigateToNextScreen();
-    });
-  }
+  Future<void> _navigate() async {
+    await Future<void>.delayed(const Duration(milliseconds: 2800));
+    if (!mounted) {
+      return;
+    }
 
-  void _navigateToNextScreen() {
-    final bool isAuthenticated = context.read<AuthProvider>().isAuthenticated;
-    final String nextRoute = isAuthenticated ? RouteNames.home : RouteNames.login;
-    Navigator.pushReplacementNamed(context, nextRoute);
+    final FirebaseAuth auth = FirebaseAuth.instance;
+    final User? user = auth.currentUser;
+
+    if (user != null) {
+      Navigator.pushReplacementNamed(context, RouteNames.home);
+    } else {
+      Navigator.pushReplacementNamed(context, RouteNames.login);
+    }
   }
 
   @override
-  void dispose() {
-    _navigationTimer?.cancel();
-    super.dispose();
-  }
+  void dispose() => super.dispose();
 
   @override
   Widget build(BuildContext context) {

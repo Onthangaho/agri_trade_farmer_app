@@ -1,5 +1,5 @@
 // lib/features/crops/data/datasources/sqlite_crop_datasource.dart
-/// Local SQLite datasource for crop persistence and sync status operations.
+// Local SQLite datasource for crop persistence and sync status operations.
 
 import 'package:logger/logger.dart';
 

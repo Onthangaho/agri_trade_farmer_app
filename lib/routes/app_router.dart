@@ -11,12 +11,12 @@ import '../features/auth/presentation/screens/login_screen.dart';
 import '../features/auth/presentation/screens/register_screen.dart';
 import '../features/crops/presentation/screens/add_crop_screen.dart';
 import '../features/crops/presentation/screens/crop_detail_screen.dart';
-import '../features/crops/domain/entities/crop_entity.dart';
 import '../features/farms/presentation/screens/my_farm_screen.dart';
 import '../features/profile/presentation/screens/edit_profile_screen.dart';
 import '../features/splash/presentation/screens/splash_screen.dart';
 import '../shared/screens/main_shell_screen.dart';
 import '../shared/screens/placeholder_screen.dart';
+import '../shared/screens/settings_screen.dart';
 import 'route_names.dart';
 
 class AppRouter {
@@ -82,23 +82,20 @@ class AppRouter {
       case RouteNames.addCrop:
         return const AddCropScreen();
       case RouteNames.cropDetail:
-        final CropEntity? crop = settings?.arguments as CropEntity?;
-        if (crop == null) {
+        final String? cropId = settings?.arguments as String?;
+        if (cropId == null || cropId.isEmpty) {
           return const AppPlaceholderScreen(
             title: 'Crop Detail',
             message: 'Could not open crop details.',
           );
         }
-        return CropDetailScreen(crop: crop);
+        return const CropDetailScreen();
       case RouteNames.addFarm:
         return const MyFarmScreen();
       case RouteNames.editProfile:
         return const EditProfileScreen();
       case RouteNames.settings:
-        return const AppPlaceholderScreen(
-          title: 'Settings',
-          message: 'App settings will be added after the base foundation.',
-        );
+        return const SettingsScreen();
       case RouteNames.messages:
         return const AppPlaceholderScreen(
           title: 'Messages',

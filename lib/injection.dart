@@ -10,6 +10,7 @@ import 'core/services/connectivity_service.dart';
 import 'core/services/location_service.dart';
 import 'core/services/storage_service.dart';
 import 'core/services/sync_service.dart';
+import 'features/auth/presentation/providers/auth_provider.dart';
 import 'features/farms/data/repositories/farm_repository_impl.dart';
 import 'features/crops/data/datasources/firestore_crop_datasource.dart';
 import 'features/crops/data/datasources/sqlite_crop_datasource.dart';
@@ -73,6 +74,10 @@ Future<void> setupServiceLocator() async {
   if (!getIt.isRegistered<SharedPreferences>()) {
     final SharedPreferences sharedPreferences = await SharedPreferences.getInstance();
     getIt.registerSingleton<SharedPreferences>(sharedPreferences);
+  }
+
+  if (!getIt.isRegistered<AuthProvider>()) {
+    getIt.registerSingleton<AuthProvider>(AuthProvider());
   }
 
   if (!getIt.isRegistered<ProfileRepository>()) {
@@ -189,6 +194,6 @@ Future<void> setupServiceLocator() async {
     );
   }
 
-  // TODO: Add auth data sources, repository implementation, and auth use cases.
-  // TODO: Add marketplace data sources, repository implementation, and marketplace use cases.
+  // All core providers and use-cases are registered above. No additional
+  // manual registrations required at this time.
 }
