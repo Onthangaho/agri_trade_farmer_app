@@ -297,7 +297,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               ),
             )
                 .animate()
-                .scale(begin: const Offset(0.5, 0.5), end: const Offset(1, 1), duration: 400.ms, curve: Curves.elasticOut)
+                  .scale(begin: const Offset(0.5, 0.5), end: const Offset(1, 1), duration: 400.ms, curve: Curves.elasticOut)
                 .fadeIn(),
             const SizedBox(height: 32),
             // Success heading
