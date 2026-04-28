@@ -1,4 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/constants/app_colors.dart';
@@ -17,6 +21,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _bioController = TextEditingController();
+  final ImagePicker _picker = ImagePicker();
+  bool _isUploadingImage = false;
 
   @override
   void initState() {
@@ -87,6 +93,91 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     );
   }
 
+  Future<void> _pickProfileImage() async {
+    final ImageSource? source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (BuildContext context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              ListTile(
+                leading: const Icon(Icons.camera_alt_outlined),
+                title: const Text('Take Photo'),
+                onTap: () => Navigator.pop(context, ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined),
+                title: const Text('Choose from Gallery'),
+                onTap: () => Navigator.pop(context, ImageSource.gallery),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (source == null || !mounted) {
+      return;
+    }
+
+    if (source == ImageSource.camera) {
+      final PermissionStatus status = await Permission.camera.request();
+      if (!mounted) {
+        return;
+      }
+      if (status.isPermanentlyDenied) {
+        await openAppSettings();
+        return;
+      }
+      if (!status.isGranted) {
+        return;
+      }
+    }
+
+    final XFile? file = await _picker.pickImage(
+      source: source,
+      imageQuality: 85,
+      maxWidth: 1024,
+      maxHeight: 1024,
+    );
+    if (!mounted || file == null) {
+      return;
+    }
+
+    setState(() {
+      _isUploadingImage = true;
+    });
+
+    final ProfileProvider provider = context.read<ProfileProvider>();
+    await provider.updateImage(File(file.path));
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isUploadingImage = false;
+    });
+
+    if (provider.errorMessage == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Profile image updated!'),
+          backgroundColor: AppColors.successGreen,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(provider.errorMessage!),
+          backgroundColor: AppColors.errorTerracotta,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      provider.clearError();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -112,6 +203,42 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
+                  Center(
+                    child: Column(
+                      children: <Widget>[
+                        CircleAvatar(
+                          radius: 44,
+                          backgroundColor: AppColors.surfaceMist,
+                          backgroundImage: provider.profileImageUrl.isNotEmpty
+                              ? NetworkImage(provider.profileImageUrl)
+                              : null,
+                          child: provider.profileImageUrl.isEmpty
+                              ? const Icon(
+                                  Icons.person_outline,
+                                  size: 40,
+                                  color: AppColors.mutedText,
+                                )
+                              : null,
+                        ),
+                        const SizedBox(height: 8),
+                        TextButton.icon(
+                          onPressed:
+                              provider.isSaving || _isUploadingImage ? null : _pickProfileImage,
+                          icon: _isUploadingImage
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.camera_alt_outlined),
+                          label: Text(
+                            _isUploadingImage ? 'Uploading...' : 'Change Profile Photo',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
                   TextFormField(
                     controller: _nameController,
                     textInputAction: TextInputAction.next,

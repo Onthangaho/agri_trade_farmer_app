@@ -27,14 +27,22 @@ class CropProvider extends ChangeNotifier {
     DatabaseHelper? databaseHelper,
     FirebaseFirestore? firestore,
     Logger? logger,
-  })  : _repository = repository,
-        _dbHelper = databaseHelper ?? DatabaseHelper.instance,
-        _firestore = firestore ?? FirebaseFirestore.instance,
+  })  : _getCrops = getCrops,
+        _saveCrop = saveCrop,
+        _updateCrop = updateCrop,
+        _deleteCrop = deleteCrop,
+        _repository = repository,
+        _dbHelper = databaseHelper,
+        _firestore = firestore,
         _logger = logger ?? Logger();
 
+  final GetCropsUseCase _getCrops;
+  final SaveCropUseCase _saveCrop;
+  final UpdateCropUseCase _updateCrop;
+  final DeleteCropUseCase _deleteCrop;
   final CropRepository _repository;
-  final DatabaseHelper _dbHelper;
-  final FirebaseFirestore _firestore;
+  final DatabaseHelper? _dbHelper;
+  final FirebaseFirestore? _firestore;
   final Logger _logger;
 
   List<CropEntity> _crops = <CropEntity>[];
@@ -48,6 +56,7 @@ class CropProvider extends ChangeNotifier {
   bool get isSaving => _isSaving;
   String? get errorMessage => _errorMessage;
   String? get successMessage => _successMessage;
+  bool get _useDirectPersistence => _dbHelper != null && _firestore != null;
 
   Future<void> loadCrops(String farmerId) async {
     if (farmerId.isEmpty) {
@@ -63,13 +72,32 @@ class CropProvider extends ChangeNotifier {
     _errorMessage = null;
     notifyListeners();
 
+    if (!_useDirectPersistence) {
+      try {
+        _crops = await _getCrops(farmerId);
+        _errorMessage = null;
+      } on SocketException {
+        _errorMessage = 'Offline - showing saved crops.';
+      } catch (error, stackTrace) {
+        _errorMessage = 'Could not load crops. Please try again.';
+        _logger.e('loadCrops (repository) failed', error: error, stackTrace: stackTrace);
+      } finally {
+        _isLoading = false;
+        notifyListeners();
+      }
+      return;
+    }
+
+    final DatabaseHelper dbHelper = _dbHelper!;
+    final FirebaseFirestore firestore = _firestore!;
+
     List<CropEntity> localCrops = <CropEntity>[];
     bool hasLocalFailure = false;
     bool hasRemoteFailure = false;
 
     try {
       final List<Map<String, dynamic>> localRows =
-          await _dbHelper.getCropsByFarmer(farmerId);
+          await dbHelper.getCropsByFarmer(farmerId);
       localCrops = localRows.map(_fromMap).toList(growable: false);
       _crops = localCrops;
       notifyListeners();
@@ -84,22 +112,35 @@ class CropProvider extends ChangeNotifier {
 
     try {
       final QuerySnapshot<Map<String, dynamic>> remoteSnapshot =
-          await _firestore
+          await firestore
               .collection('crops')
               .where('farmerId', isEqualTo: farmerId)
               .get();
 
       final List<CropEntity> remoteCrops =
           remoteSnapshot.docs.map(_fromFirestore).toList(growable: false);
+      final Map<String, CropEntity> localById = <String, CropEntity>{
+        for (final CropEntity crop in localCrops) crop.id: crop,
+      };
 
       for (final CropEntity remoteCrop in remoteCrops) {
-        await _dbHelper.insertCrop(_toMap(remoteCrop, synced: 1));
+        final CropEntity? localMatch = localById[remoteCrop.id];
+        if (localMatch != null && !localMatch.synced) {
+          // Never overwrite newer local unsynced edits with stale cloud copies.
+          continue;
+        }
+        await dbHelper.insertCrop(_toMap(remoteCrop, synced: 1));
       }
 
       final Map<String, CropEntity> mergedById = <String, CropEntity>{
-        for (final CropEntity crop in localCrops) crop.id: crop,
         for (final CropEntity crop in remoteCrops) crop.id: crop,
       };
+      for (final CropEntity localCrop in localCrops) {
+        final CropEntity? existing = mergedById[localCrop.id];
+        if (existing == null || !localCrop.synced) {
+          mergedById[localCrop.id] = localCrop;
+        }
+      }
       _crops = mergedById.values.toList(growable: false)
         ..sort((CropEntity a, CropEntity b) => b.listedAt.compareTo(a.listedAt));
     } on FirebaseException catch (error, stackTrace) {
@@ -139,8 +180,31 @@ class CropProvider extends ChangeNotifier {
     final String cropId = crop.id.trim().isEmpty ? const Uuid().v4() : crop.id;
     final CropEntity cropToSave = crop.copyWith(id: cropId, synced: false);
 
+    if (!_useDirectPersistence) {
+      try {
+        await _saveCrop(cropToSave, imageFile: imageFile);
+        _upsertLocalCrop(cropToSave.copyWith(synced: true));
+        _successMessage = 'Crop saved successfully.';
+        return true;
+      } on SocketException {
+        _upsertLocalCrop(cropToSave);
+        _successMessage = 'Saved offline. Will sync when connected.';
+        return true;
+      } catch (error, stackTrace) {
+        _logger.e('saveCrop (repository) failed', error: error, stackTrace: stackTrace);
+        _errorMessage = 'Could not save crop. Please try again.';
+        return false;
+      } finally {
+        _isSaving = false;
+        notifyListeners();
+      }
+    }
+
+    final DatabaseHelper dbHelper = _dbHelper!;
+    final FirebaseFirestore firestore = _firestore!;
+
     try {
-      await _dbHelper.insertCrop(_toMap(cropToSave, synced: 0));
+      await dbHelper.insertCrop(_toMap(cropToSave, synced: 0));
       _upsertLocalCrop(cropToSave);
       notifyListeners();
     } catch (error, stackTrace) {
@@ -152,11 +216,11 @@ class CropProvider extends ChangeNotifier {
     }
 
     try {
-      await _firestore
+      await firestore
           .collection('crops')
           .doc(cropId)
           .set(_toFirestore(cropToSave), SetOptions(merge: true));
-      await _dbHelper.markCropSynced(cropId);
+      await dbHelper.markCropSynced(cropId);
       _upsertLocalCrop(cropToSave.copyWith(synced: true));
       _successMessage = 'Crop saved successfully.';
       return true;
@@ -186,8 +250,29 @@ class CropProvider extends ChangeNotifier {
 
     final CropEntity updatedCrop = crop.copyWith(synced: false);
 
+    if (!_useDirectPersistence) {
+      try {
+        await _updateCrop(updatedCrop);
+        _upsertLocalCrop(updatedCrop.copyWith(synced: true));
+        _successMessage = 'Crop updated successfully.';
+      } on SocketException {
+        _upsertLocalCrop(updatedCrop);
+        _successMessage = 'Updated offline. Will sync when connected.';
+      } catch (error, stackTrace) {
+        _logger.e('updateCrop (repository) failed', error: error, stackTrace: stackTrace);
+        _errorMessage = 'Could not update crop. Please try again.';
+      } finally {
+        _isSaving = false;
+        notifyListeners();
+      }
+      return;
+    }
+
+    final DatabaseHelper dbHelper = _dbHelper!;
+    final FirebaseFirestore firestore = _firestore!;
+
     try {
-      await _dbHelper.updateCrop(updatedCrop.id, _toMap(updatedCrop, synced: 0));
+      await dbHelper.updateCrop(updatedCrop.id, _toMap(updatedCrop, synced: 0));
       _upsertLocalCrop(updatedCrop);
       notifyListeners();
     } catch (error, stackTrace) {
@@ -199,11 +284,11 @@ class CropProvider extends ChangeNotifier {
     }
 
     try {
-      await _firestore
+      await firestore
           .collection('crops')
           .doc(updatedCrop.id)
           .set(_toFirestore(updatedCrop), SetOptions(merge: true));
-      await _dbHelper.markCropSynced(updatedCrop.id);
+      await dbHelper.markCropSynced(updatedCrop.id);
       _upsertLocalCrop(updatedCrop.copyWith(synced: true));
       _successMessage = 'Crop updated successfully.';
     } on FirebaseException catch (error, stackTrace) {
@@ -229,8 +314,32 @@ class CropProvider extends ChangeNotifier {
 
     final List<CropEntity> backup = List<CropEntity>.from(_crops);
 
+    if (!_useDirectPersistence) {
+      _crops = _crops.where((CropEntity item) => item.id != id).toList(growable: false);
+      notifyListeners();
+      try {
+        await _deleteCrop(id);
+        _successMessage = 'Crop deleted.';
+        return true;
+      } on SocketException {
+        _successMessage = 'Deleted offline. Will sync when connected.';
+        return true;
+      } catch (error, stackTrace) {
+        _logger.e('deleteCrop (repository) failed', error: error, stackTrace: stackTrace);
+        _crops = backup;
+        _errorMessage = 'Could not delete crop right now.';
+        return false;
+      } finally {
+        _isSaving = false;
+        notifyListeners();
+      }
+    }
+
+    final DatabaseHelper dbHelper = _dbHelper!;
+    final FirebaseFirestore firestore = _firestore!;
+
     try {
-      await _dbHelper.deleteCrop(id);
+      await dbHelper.deleteCrop(id);
       _crops = _crops.where((CropEntity item) => item.id != id).toList(growable: false);
       notifyListeners();
     } catch (error, stackTrace) {
@@ -242,7 +351,7 @@ class CropProvider extends ChangeNotifier {
     }
 
     try {
-      await _firestore.collection('crops').doc(id).delete();
+      await firestore.collection('crops').doc(id).delete();
       _successMessage = 'Crop deleted.';
       return true;
     } on FirebaseException catch (error, stackTrace) {
