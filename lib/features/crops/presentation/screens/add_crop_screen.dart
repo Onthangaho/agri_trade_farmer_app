@@ -47,7 +47,38 @@ class _AddCropScreenState extends State<AddCropScreen> {
   }
 
   Future<void> _pickImage() async {
-    final bool proceed = await showDialog<bool>(
+    final ImageSource? source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (BuildContext context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              ListTile(
+                leading: const Icon(Icons.camera_alt_outlined),
+                title: const Text('Use Camera'),
+                onTap: () => Navigator.pop(context, ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined),
+                title: const Text('Choose from Gallery'),
+                onTap: () => Navigator.pop(context, ImageSource.gallery),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (source == null) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+
+    if (source == ImageSource.camera) {
+      final bool proceed = await showDialog<bool>(
           context: context,
           builder: (_) => AlertDialog(
             title: const Text(
@@ -73,8 +104,9 @@ class _AddCropScreenState extends State<AddCropScreen> {
         ) ??
         false;
 
-    if (!proceed) {
-      return;
+      if (!proceed) {
+        return;
+      }
     }
 
     setState(() {
@@ -82,17 +114,19 @@ class _AddCropScreenState extends State<AddCropScreen> {
     });
 
     try {
-      final PermissionStatus status = await Permission.camera.request();
-      if (status.isPermanentlyDenied) {
-        await openAppSettings();
-        return;
-      }
-      if (!status.isGranted) {
-        return;
+      if (source == ImageSource.camera) {
+        final PermissionStatus status = await Permission.camera.request();
+        if (status.isPermanentlyDenied) {
+          await openAppSettings();
+          return;
+        }
+        if (!status.isGranted) {
+          return;
+        }
       }
 
       final XFile? file = await _picker.pickImage(
-        source: ImageSource.camera,
+        source: source,
         imageQuality: 85,
         maxWidth: 1024,
         maxHeight: 1024,
@@ -376,7 +410,7 @@ class _AddCropScreenState extends State<AddCropScreen> {
                                       child: CircularProgressIndicator(strokeWidth: 2),
                                     )
                                   : const Icon(Icons.camera_alt_outlined),
-                              label: const Text('Add Photo'),
+                              label: const Text('Add Photo (Camera/Gallery)'),
                             ),
                           )
                         else
