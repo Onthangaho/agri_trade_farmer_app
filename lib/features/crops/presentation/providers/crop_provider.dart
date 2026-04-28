@@ -132,17 +132,10 @@ class CropProvider extends ChangeNotifier {
         await dbHelper.insertCrop(_toMap(remoteCrop, synced: 1));
       }
 
-      final Map<String, CropEntity> mergedById = <String, CropEntity>{
-        for (final CropEntity crop in remoteCrops) crop.id: crop,
-      };
-      for (final CropEntity localCrop in localCrops) {
-        final CropEntity? existing = mergedById[localCrop.id];
-        if (existing == null || !localCrop.synced) {
-          mergedById[localCrop.id] = localCrop;
-        }
-      }
-      _crops = mergedById.values.toList(growable: false)
-        ..sort((CropEntity a, CropEntity b) => b.listedAt.compareTo(a.listedAt));
+      _crops = mergeLocalAndRemoteCrops(
+        localCrops: localCrops,
+        remoteCrops: remoteCrops,
+      );
     } on FirebaseException catch (error, stackTrace) {
       hasRemoteFailure = true;
       _logger.e(
@@ -389,6 +382,25 @@ class CropProvider extends ChangeNotifier {
   void clearSuccess() {
     _successMessage = null;
     notifyListeners();
+  }
+
+  @visibleForTesting
+  List<CropEntity> mergeLocalAndRemoteCrops({
+    required List<CropEntity> localCrops,
+    required List<CropEntity> remoteCrops,
+  }) {
+    final Map<String, CropEntity> mergedById = <String, CropEntity>{
+      for (final CropEntity crop in remoteCrops) crop.id: crop,
+    };
+    for (final CropEntity localCrop in localCrops) {
+      final CropEntity? existing = mergedById[localCrop.id];
+      if (existing == null || !localCrop.synced) {
+        mergedById[localCrop.id] = localCrop;
+      }
+    }
+    final List<CropEntity> merged = mergedById.values.toList(growable: false);
+    merged.sort((CropEntity a, CropEntity b) => b.listedAt.compareTo(a.listedAt));
+    return merged;
   }
 
   void _upsertLocalCrop(CropEntity crop) {
