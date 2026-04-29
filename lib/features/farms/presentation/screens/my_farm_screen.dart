@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
+import '../../../../shared/providers/connectivity_provider.dart';
 import '../providers/farm_provider.dart';
 
 class MyFarmScreen extends StatefulWidget {
@@ -107,8 +108,13 @@ class _MyFarmScreenState extends State<MyFarmScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<FarmProvider>(
-      builder: (BuildContext context, FarmProvider provider, Widget? child) {
+    return Consumer2<FarmProvider, ConnectivityProvider>(
+      builder: (
+        BuildContext context,
+        FarmProvider provider,
+        ConnectivityProvider connectivityProvider,
+        Widget? child,
+      ) {
         if (provider.isLoading && !provider.hasFarm) {
           return const Scaffold(
             backgroundColor: AppColors.backgroundCream,
@@ -120,7 +126,30 @@ class _MyFarmScreenState extends State<MyFarmScreen> {
 
         return Scaffold(
           backgroundColor: AppColors.backgroundCream,
-          body: provider.hasFarm ? _buildFarmDetails(provider) : _buildAddFarmForm(provider),
+          body: Column(
+            children: <Widget>[
+              if (!connectivityProvider.isOnline)
+                Container(
+                  width: double.infinity,
+                  color: AppColors.accentAmber.withValues(alpha: 0.18),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: const Text(
+                    'Cloud is offline. Farm changes are saved locally and will sync later.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontFamily: 'NunitoSans',
+                      color: AppColors.navyText,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              Expanded(
+                child: provider.hasFarm
+                    ? _buildFarmDetails(provider)
+                    : _buildAddFarmForm(provider),
+              ),
+            ],
+          ),
         );
       },
     );
@@ -240,18 +269,18 @@ class _MyFarmScreenState extends State<MyFarmScreen> {
           ),
         ),
         const SizedBox(height: 14),
-        if (hasLocation)
+        if (hasLocation && lat != null && lng != null)
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: const Color(0xFFDFF6E8),
+              color: AppColors.successGreen.withValues(alpha: 0.18),
               borderRadius: BorderRadius.circular(14),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Text(
-                  'Location tagged: ${lat!.toStringAsFixed(4)}, ${lng!.toStringAsFixed(4)}',
+                  'Location tagged: ${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}',
                   style: const TextStyle(
                     fontFamily: 'NunitoSans',
                     fontWeight: FontWeight.w700,
@@ -285,7 +314,7 @@ class _MyFarmScreenState extends State<MyFarmScreen> {
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: const Color(0xFFFFF5DB),
+              color: AppColors.accentAmber.withValues(alpha: 0.18),
               borderRadius: BorderRadius.circular(14),
             ),
             child: Column(
@@ -296,7 +325,7 @@ class _MyFarmScreenState extends State<MyFarmScreen> {
                   style: TextStyle(
                     fontFamily: 'Poppins',
                     fontWeight: FontWeight.w600,
-                    color: Color(0xFF9A6700),
+                    color: AppColors.navyText,
                   ),
                 ),
                 const SizedBox(height: 10),
