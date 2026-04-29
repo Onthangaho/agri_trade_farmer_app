@@ -347,6 +347,18 @@ class SyncService {
     }
 
     await _databaseHelper.markFarmerSynced(farmerId);
+
+    // Remove durable sync image after successful queued upload/link.
+    if (localImagePath != null && localImagePath.isNotEmpty) {
+      try {
+        final File localFile = File(localImagePath);
+        if (await localFile.exists()) {
+          await localFile.delete();
+        }
+      } catch (_) {
+        // Best-effort cleanup only.
+      }
+    }
   }
 
   Future<void> _deleteRemoteRecord(String tableName, String recordId) async {
