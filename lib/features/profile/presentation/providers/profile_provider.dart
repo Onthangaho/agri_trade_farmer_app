@@ -2,9 +2,11 @@
 /// Profile provider that always resolves to a usable profile model.
 
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:flutter/foundation.dart';
 import 'package:logger/logger.dart';
 
@@ -14,6 +16,8 @@ import '../../domain/use_cases/get_profile_use_case.dart';
 import '../../domain/use_cases/update_profile_use_case.dart';
 
 class ProfileProvider extends ChangeNotifier {
+  static const int _maxFirestoreImageBytes = 520 * 1024;
+
   ProfileProvider({
     required GetProfileUseCase getProfile,
     required UpdateProfileUseCase updateProfile,
@@ -21,12 +25,10 @@ class ProfileProvider extends ChangeNotifier {
     FirebaseFirestore? firestore,
     FirebaseAuth? auth,
     Logger? logger,
-  })  : _profileRepository = profileRepository,
-        _db = firestore ?? FirebaseFirestore.instance,
+  })  : _db = firestore ?? FirebaseFirestore.instance,
         _auth = auth ?? FirebaseAuth.instance,
         _logger = logger ?? Logger();
 
-  final ProfileRepository _profileRepository;
   final FirebaseFirestore _db;
   final FirebaseAuth _auth;
   final Logger _logger;
@@ -95,9 +97,13 @@ class ProfileProvider extends ChangeNotifier {
         await _db.collection('farmers').doc(userId).set(_profileData!);
       }
     } on FirebaseException catch (error, stackTrace) {
-      _logger.e('loadProfile Firebase failed', error: error, stackTrace: stackTrace);
+      if (error.code != 'unavailable') {
+        _logger.e('loadProfile Firebase failed', error: error, stackTrace: stackTrace);
+      }
       _profileData = _fallbackProfileData();
-      _errorMessage = 'Could not refresh profile from cloud.';
+      _errorMessage = error.code == 'unavailable'
+          ? null
+          : 'Could not refresh profile from cloud.';
     } catch (error, stackTrace) {
       _logger.e('loadProfile failed', error: error, stackTrace: stackTrace);
       _profileData = _fallbackProfileData();
@@ -193,11 +199,26 @@ class ProfileProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final String imageUrl =
-          await _profileRepository.updateProfileImage(userId, imageFile);
+      final File? fileToSave = await _compressImageForFirestore(imageFile);
+      if (fileToSave == null) {
+        _errorMessage =
+            'Image is too large for Firestore. Please pick a smaller photo.';
+        return;
+      }
+      final List<int> bytes = await fileToSave.readAsBytes();
+      final String dataUri = 'data:image/jpeg;base64,${base64Encode(bytes)}';
+
+      await _db.collection('farmers').doc(userId).set(
+        <String, dynamic>{
+          'profileImageUrl': dataUri,
+          'updatedAt': Timestamp.now(),
+        },
+        SetOptions(merge: true),
+      );
+
       _profileData = <String, dynamic>{
         ...?_profileData,
-        'profileImageUrl': imageUrl,
+        'profileImageUrl': dataUri,
       };
     } on FirebaseException catch (error, stackTrace) {
       _logger.e('updateImage Firebase failed', error: error, stackTrace: stackTrace);
@@ -218,6 +239,44 @@ class ProfileProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<File?> _compressImageForFirestore(File source) async {
+    if (!source.existsSync()) {
+      return null;
+    }
+    if (source.lengthSync() <= _maxFirestoreImageBytes) {
+      return source;
+    }
+
+    final List<_CompressionPreset> presets = <_CompressionPreset>[
+      const _CompressionPreset(quality: 65, minWidth: 720, minHeight: 720),
+      const _CompressionPreset(quality: 55, minWidth: 640, minHeight: 640),
+      const _CompressionPreset(quality: 45, minWidth: 560, minHeight: 560),
+      const _CompressionPreset(quality: 35, minWidth: 480, minHeight: 480),
+    ];
+
+    File current = source;
+    for (int i = 0; i < presets.length; i++) {
+      final _CompressionPreset preset = presets[i];
+      final XFile? compressed = await FlutterImageCompress.compressAndGetFile(
+        current.path,
+        '${source.parent.path}/profile_${DateTime.now().millisecondsSinceEpoch}_$i.jpg',
+        quality: preset.quality,
+        minWidth: preset.minWidth,
+        minHeight: preset.minHeight,
+        format: CompressFormat.jpeg,
+      );
+      if (compressed == null) {
+        continue;
+      }
+      current = File(compressed.path);
+      if (current.lengthSync() <= _maxFirestoreImageBytes) {
+        return current;
+      }
+    }
+
+    return null;
+  }
+
   Map<String, dynamic> _fallbackProfileData() {
     final User? user = _auth.currentUser;
     return <String, dynamic>{
@@ -230,4 +289,16 @@ class ProfileProvider extends ChangeNotifier {
       'updatedAt': Timestamp.now(),
     };
   }
+}
+
+class _CompressionPreset {
+  const _CompressionPreset({
+    required this.quality,
+    required this.minWidth,
+    required this.minHeight,
+  });
+
+  final int quality;
+  final int minWidth;
+  final int minHeight;
 }

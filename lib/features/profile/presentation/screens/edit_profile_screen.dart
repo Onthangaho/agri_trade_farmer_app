@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -209,9 +210,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         CircleAvatar(
                           radius: 44,
                           backgroundColor: AppColors.surfaceMist,
-                          backgroundImage: provider.profileImageUrl.isNotEmpty
-                              ? NetworkImage(provider.profileImageUrl)
-                              : null,
+                          backgroundImage: _profileImageProvider(provider.profileImageUrl),
                           child: provider.profileImageUrl.isEmpty
                               ? const Icon(
                                   Icons.person_outline,
@@ -312,5 +311,23 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         },
       ),
     );
+  }
+
+  ImageProvider<Object>? _profileImageProvider(String value) {
+    if (value.isEmpty) {
+      return null;
+    }
+    if (value.startsWith('data:image')) {
+      final int index = value.indexOf(',');
+      if (index <= 0) {
+        return null;
+      }
+      try {
+        return MemoryImage(base64Decode(value.substring(index + 1)));
+      } catch (_) {
+        return null;
+      }
+    }
+    return NetworkImage(value);
   }
 }
