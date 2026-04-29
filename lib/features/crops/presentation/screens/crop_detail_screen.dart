@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/constants/app_colors.dart';
+import '../../../marketplace/presentation/providers/marketplace_provider.dart';
 import '../providers/crop_provider.dart';
 import '../../domain/entities/crop_entity.dart';
 
@@ -32,12 +33,20 @@ class CropDetailScreen extends StatelessWidget {
       description: 'This crop listing could not be loaded.',
     );
 
-    final CropEntity selectedCrop = crop ??
-        argCrop ??
-        context.read<CropProvider>().crops.firstWhere(
-              (CropEntity c) => c.id == cropId,
-              orElse: () => fallback,
-            );
+    CropEntity selectedCrop = crop ?? argCrop ?? fallback;
+    if (selectedCrop.id.isEmpty && cropId != null && cropId.isNotEmpty) {
+      final CropProvider cropProvider = context.read<CropProvider>();
+      final MarketplaceProvider marketplaceProvider =
+          context.read<MarketplaceProvider>();
+
+      selectedCrop = cropProvider.crops.firstWhere(
+        (CropEntity c) => c.id == cropId,
+        orElse: () => marketplaceProvider.listings.firstWhere(
+          (CropEntity c) => c.id == cropId,
+          orElse: () => fallback,
+        ),
+      );
+    }
 
     return Scaffold(
       backgroundColor: AppColors.backgroundCream,
@@ -198,6 +207,9 @@ class CropDetailScreen extends StatelessWidget {
             errorBuilder: (context, error, stackTrace) => _heroPlaceholder(),
           );
         }
+
+        // If it can't be decoded, avoid trying to treat it as a network URL.
+        return _heroPlaceholder();
       }
       return CachedNetworkImage(
         imageUrl: imageUrl,

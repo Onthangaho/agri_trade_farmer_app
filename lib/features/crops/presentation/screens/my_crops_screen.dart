@@ -2,6 +2,7 @@
 /// Crop inventory screen showing farmer listings with offline-first CRUD feedback.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 
@@ -24,10 +25,13 @@ class MyCropsScreen extends StatefulWidget {
 
 class _MyCropsScreenState extends State<MyCropsScreen> {
   CropProvider? _provider;
+  final ScrollController _scrollController = ScrollController();
+  bool _showFab = true;
 
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_handleScrollForFab);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) {
         return;
@@ -46,7 +50,29 @@ class _MyCropsScreenState extends State<MyCropsScreen> {
   @override
   void dispose() {
     _provider?.removeListener(_handleProviderEvents);
+    _scrollController
+      ..removeListener(_handleScrollForFab)
+      ..dispose();
     super.dispose();
+  }
+
+  void _handleScrollForFab() {
+    if (!_scrollController.hasClients) {
+      return;
+    }
+    final ScrollDirection direction = _scrollController.position.userScrollDirection;
+    if (direction == ScrollDirection.idle) {
+      return;
+    }
+    if (direction == ScrollDirection.reverse && _showFab) {
+      setState(() {
+        _showFab = false;
+      });
+    } else if (direction == ScrollDirection.forward && !_showFab) {
+      setState(() {
+        _showFab = true;
+      });
+    }
   }
 
   void _handleProviderEvents() {
@@ -126,20 +152,17 @@ class _MyCropsScreenState extends State<MyCropsScreen> {
               Expanded(child: _buildBody(provider)),
             ],
           ),
-          floatingActionButton: FloatingActionButton.extended(
-            heroTag: 'my_crops_add_fab',
-            backgroundColor: AppColors.accentAmber,
-            onPressed: () => Navigator.pushNamed(context, RouteNames.addCrop),
-            icon: const Icon(Icons.add, color: AppColors.navyText),
-            label: const Text(
-              'Add Crop',
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontWeight: FontWeight.w600,
-                color: AppColors.navyText,
-              ),
-            ),
-          ),
+          floatingActionButton: _showFab
+              ? FloatingActionButton(
+                  heroTag: 'my_crops_fab',
+                  backgroundColor: AppColors.accentAmber,
+                  foregroundColor: AppColors.navyText,
+                  tooltip: 'List a crop',
+                  onPressed: () => Navigator.pushNamed(context, RouteNames.addCrop),
+                  child: const Icon(Icons.add, size: 28),
+                )
+              : null,
+          floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
         );
       },
     );
@@ -148,8 +171,9 @@ class _MyCropsScreenState extends State<MyCropsScreen> {
   Widget _buildBody(CropProvider provider) {
     if (provider.isLoading) {
       return ListView.builder(
+        controller: _scrollController,
         itemCount: 5,
-        padding: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.only(bottom: 100),
         itemBuilder: (BuildContext context, int index) {
           return const ShimmerCropCard();
         },
@@ -161,13 +185,15 @@ class _MyCropsScreenState extends State<MyCropsScreen> {
         color: AppColors.primaryGreen,
         onRefresh: _refreshCrops,
         child: ListView(
+          controller: _scrollController,
+          padding: const EdgeInsets.only(bottom: 100),
           physics: AlwaysScrollableScrollPhysics(),
           children: <Widget>[
             SizedBox(height: 120),
             EmptyStateWidget(
               icon: Icons.grass_outlined,
               title: 'No crops listed yet',
-              subtitle: 'Tap Add Crop to list your first crop',
+              subtitle: 'Tap List Crop (below) or use Add in the bottom bar.',
             ),
           ],
         ),
@@ -178,8 +204,9 @@ class _MyCropsScreenState extends State<MyCropsScreen> {
       color: AppColors.primaryGreen,
       onRefresh: _refreshCrops,
       child: ListView.builder(
+        controller: _scrollController,
         itemCount: provider.crops.length,
-        padding: const EdgeInsets.only(bottom: 96),
+        padding: const EdgeInsets.only(bottom: 100),
         itemBuilder: (BuildContext context, int index) {
           final CropEntity crop = provider.crops[index];
           return Dismissible(
@@ -228,6 +255,7 @@ class _MyCropsScreenState extends State<MyCropsScreen> {
             child: CropCard(
               crop: crop,
               index: index,
+              layout: CropCardLayout.horizontal,
             )
                 .animate(delay: Duration(milliseconds: index * 60))
                 .fadeIn(duration: 300.ms)
