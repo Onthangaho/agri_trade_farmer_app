@@ -194,6 +194,8 @@ Future<void> setupServiceLocator() async {
   if (!getIt.isRegistered<ProfileProvider>()) {
     getIt.registerFactory<ProfileProvider>(
       () => ProfileProvider(
+        getProfile: getIt<GetProfileUseCase>(),
+        updateProfile: getIt<UpdateProfileUseCase>(),
         profileRepository: getIt<ProfileRepository>(),
       ),
     );
