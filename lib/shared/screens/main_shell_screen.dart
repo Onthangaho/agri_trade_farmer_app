@@ -6,12 +6,12 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../features/auth/presentation/providers/auth_provider.dart';
-import '../../features/crops/presentation/screens/add_crop_screen.dart';
 import '../../features/crops/presentation/screens/my_crops_screen.dart';
 import '../../features/farms/presentation/screens/my_farm_screen.dart';
 import '../../features/marketplace/presentation/screens/marketplace_screen.dart';
 import '../../features/profile/presentation/screens/profile_screen.dart';
 import '../../routes/route_names.dart';
+import '../widgets/logout_confirmation_dialog.dart';
 import '../widgets/sync_status_badge.dart';
 
 class MainShellScreen extends StatefulWidget {
@@ -24,10 +24,11 @@ class MainShellScreen extends StatefulWidget {
 class _MainShellScreenState extends State<MainShellScreen> {
   int _selectedIndex = 0;
 
+  /// Index 2 is the bottom-nav Add action only (opens a route); body never shows it.
   final List<Widget> _tabs = const <Widget>[
     MarketplaceScreen(),
     MyCropsScreen(),
-    AddCropScreen(),
+    SizedBox.shrink(),
     MyFarmScreen(),
     ProfileScreen(),
   ];
@@ -51,8 +52,30 @@ class _MainShellScreenState extends State<MainShellScreen> {
     Navigator.pushNamed(context, routeName);
   }
 
-  void _logout() {
-    context.read<AuthProvider>().signOut();
+  Future<void> _logout() async {
+    final bool shouldLogout = await showLogoutConfirmationDialog(context);
+    if (!shouldLogout || !mounted) {
+      return;
+    }
+    final AuthProvider? authProvider = context.read<AuthProvider?>();
+    if (authProvider != null) {
+      try {
+        await authProvider.signOut();
+      } catch (_) {
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not sign out. Please try again.'),
+          ),
+        );
+        return;
+      }
+    }
+    if (!mounted) {
+      return;
+    }
     Navigator.pushNamedAndRemoveUntil(
       context,
       RouteNames.login,
@@ -62,7 +85,7 @@ class _MainShellScreenState extends State<MainShellScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final user = context.read<AuthProvider>().currentUser;
+    final user = context.read<AuthProvider?>()?.currentUser;
     final String name = user?.displayName ?? 'AgriTrade Farmer';
     final String email = user?.email ?? '';
 
@@ -157,28 +180,102 @@ class _MainShellScreenState extends State<MainShellScreen> {
         ),
       ),
       body: _tabs[_selectedIndex],
-      floatingActionButton: FloatingActionButton.extended(
-        heroTag: 'main_add_crop_fab',
-        elevation: 4,
-        onPressed: _openAddCrop,
-        icon: const Icon(Icons.add_circle_outline),
-        label: const Text(
-          'List Crop',
-          style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w600),
-        ),
-        backgroundColor: AppColors.primaryGreen,
-        foregroundColor: Colors.white,
-      ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: _onTabSelected,
-        items: const <BottomNavigationBarItem>[
-          BottomNavigationBarItem(icon: Icon(Icons.storefront), label: 'Market'),
-          BottomNavigationBarItem(icon: Icon(Icons.inventory_2), label: 'My Crops'),
-          BottomNavigationBarItem(icon: Icon(Icons.add_circle), label: 'Add'),
-          BottomNavigationBarItem(icon: Icon(Icons.terrain), label: 'My Farm'),
-          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
+      floatingActionButton: FloatingActionButton(
+        heroTag: 'shell_main_fab',
+        backgroundColor: AppColors.accentAmber,
+        foregroundColor: AppColors.navyText,
+        elevation: 4,
+        tooltip: 'Add crop listing',
+        onPressed: _openAddCrop,
+        child: const Icon(Icons.add, size: 30),
+      ),
+      bottomNavigationBar: BottomAppBar(
+        shape: const CircularNotchedRectangle(),
+        notchMargin: 8,
+        color: Colors.white,
+        elevation: 12,
+        padding: EdgeInsets.zero,
+        child: SizedBox(
+          height: 60,
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: _ShellNavItem(
+                  label: 'Market',
+                  icon: Icons.storefront,
+                  isSelected: _selectedIndex == 0,
+                  onTap: () => _onTabSelected(0),
+                ),
+              ),
+              Expanded(
+                child: _ShellNavItem(
+                  label: 'My Crops',
+                  icon: Icons.inventory_2,
+                  isSelected: _selectedIndex == 1,
+                  onTap: () => _onTabSelected(1),
+                ),
+              ),
+              const Expanded(child: SizedBox()),
+              Expanded(
+                child: _ShellNavItem(
+                  label: 'My Farm',
+                  icon: Icons.terrain,
+                  isSelected: _selectedIndex == 3,
+                  onTap: () => _onTabSelected(3),
+                ),
+              ),
+              Expanded(
+                child: _ShellNavItem(
+                  label: 'Profile',
+                  icon: Icons.person,
+                  isSelected: _selectedIndex == 4,
+                  onTap: () => _onTabSelected(4),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ShellNavItem extends StatelessWidget {
+  const _ShellNavItem({
+    required this.label,
+    required this.icon,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color iconColor = isSelected ? AppColors.primaryGreen : AppColors.mutedText;
+    final Color textColor = isSelected ? AppColors.primaryGreen : AppColors.mutedText;
+    return InkWell(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          Icon(icon, color: iconColor),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontFamily: isSelected ? 'Poppins' : 'NunitoSans',
+              fontWeight: FontWeight.w600,
+              fontSize: isSelected ? 12 : 11,
+              color: textColor,
+            ),
+          ),
         ],
       ),
     );

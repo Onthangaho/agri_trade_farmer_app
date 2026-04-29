@@ -145,4 +145,40 @@ void main() {
     expect(deleted, isTrue);
     expect(provider.crops.any((e) => e.id == 'c4'), isFalse);
   });
+
+  test('mergeLocalAndRemoteCrops keeps unsynced local over stale remote', () async {
+    final DateTime now = DateTime.now();
+    final CropEntity localUnsynced = CropEntity(
+      id: 'same-id',
+      farmerId: 'f5',
+      name: 'Local Fresh Maize',
+      quantity: 12,
+      unit: 'kg',
+      pricePerUnit: 55,
+      listedAt: now,
+      status: 'active',
+      synced: false,
+    );
+    final CropEntity remoteStale = CropEntity(
+      id: 'same-id',
+      farmerId: 'f5',
+      name: 'Remote Old Maize',
+      quantity: 8,
+      unit: 'kg',
+      pricePerUnit: 40,
+      listedAt: now.subtract(const Duration(hours: 1)),
+      status: 'active',
+      synced: true,
+    );
+
+    final List<CropEntity> merged = provider.mergeLocalAndRemoteCrops(
+      localCrops: <CropEntity>[localUnsynced],
+      remoteCrops: <CropEntity>[remoteStale],
+    );
+
+    expect(merged, hasLength(1));
+    expect(merged.first.name, 'Local Fresh Maize');
+    expect(merged.first.quantity, 12);
+    expect(merged.first.synced, isFalse);
+  });
 }

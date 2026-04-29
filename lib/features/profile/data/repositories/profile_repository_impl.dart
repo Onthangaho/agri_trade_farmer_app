@@ -137,11 +137,32 @@ class ProfileRepositoryImpl implements ProfileRepository {
 
       final Uint8List compressedBytes = await compressedFile.readAsBytes();
       final Reference ref = _storage.ref().child('farmers/$farmerId/profile.jpg');
-      await ref.putData(
-        compressedBytes,
-        SettableMetadata(contentType: 'image/jpeg'),
-      );
-      final String downloadUrl = await ref.getDownloadURL();
+      String downloadUrl;
+      try {
+        await ref.putData(
+          compressedBytes,
+          SettableMetadata(contentType: 'image/jpeg'),
+        );
+        downloadUrl = await ref.getDownloadURL();
+      } on FirebaseException catch (error, stackTrace) {
+        // Treat transient storage/network failures as offline-capable operations.
+        if (error.code == 'unknown' ||
+            error.code == 'unavailable' ||
+            error.code == 'network-request-failed' ||
+            error.code == 'retry-limit-exceeded') {
+          _logger.w(
+            'Profile image upload deferred due to transient storage error',
+            error: error,
+            stackTrace: stackTrace,
+          );
+          await _queueProfileImageSync(
+            farmerId: farmerId,
+            localImagePath: compressedFile.path,
+          );
+          throw const SocketException('Upload deferred while offline');
+        }
+        rethrow;
+      }
 
       final Map<String, dynamic>? local = await _databaseHelper.getFarmerById(farmerId);
       if (local != null) {

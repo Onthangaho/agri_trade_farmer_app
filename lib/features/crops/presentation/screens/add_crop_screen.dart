@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
@@ -20,6 +22,8 @@ class AddCropScreen extends StatefulWidget {
 }
 
 class _AddCropScreenState extends State<AddCropScreen> {
+  static const int _maxFirestoreImageBytes = 520 * 1024;
+
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _quantityController = TextEditingController();
@@ -135,44 +139,31 @@ class _AddCropScreenState extends State<AddCropScreen> {
         return;
       }
 
-      final XFile? compressed = await FlutterImageCompress.compressAndGetFile(
-        file.path,
-        '${file.path}_compressed.jpg',
-        quality: 80,
-        minWidth: 800,
-        minHeight: 800,
-      );
+      final XFile? compressed = await _compressImageForFirestore(file);
 
       if (!mounted) {
         return;
       }
 
       if (compressed != null) {
-        final File compressedFile = File(compressed.path);
-        final int sizeInBytes = await compressedFile.length();
-
-        // Ensure mobile demo uploads remain lightweight and reliable.
-        if (sizeInBytes > 200 * 1024) {
-          final XFile? tighterCompressed = await FlutterImageCompress.compressAndGetFile(
-            compressed.path,
-            '${compressed.path}_200kb.jpg',
-            quality: 65,
-            minWidth: 720,
-            minHeight: 720,
-          );
-          if (tighterCompressed != null) {
-            setState(() {
-              _selectedImageFile = File(tighterCompressed.path);
-              _localImagePath = tighterCompressed.path;
-            });
-            return;
-          }
+        final File persistedFile = await _persistImageForListing(compressed);
+        if (!mounted) {
+          return;
         }
-
         setState(() {
-          _selectedImageFile = compressedFile;
-          _localImagePath = compressed.path;
+          _selectedImageFile = persistedFile;
+          _localImagePath = persistedFile.path;
         });
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Photo is too large for sync. Please use a smaller image.',
+            ),
+            backgroundColor: AppColors.errorTerracotta,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
     } finally {
       if (mounted) {
@@ -181,6 +172,53 @@ class _AddCropScreenState extends State<AddCropScreen> {
         });
       }
     }
+  }
+
+  Future<XFile?> _compressImageForFirestore(XFile source) async {
+    final List<_CompressionPreset> presets = <_CompressionPreset>[
+      const _CompressionPreset(quality: 80, minWidth: 800, minHeight: 800),
+      const _CompressionPreset(quality: 65, minWidth: 720, minHeight: 720),
+      const _CompressionPreset(quality: 55, minWidth: 640, minHeight: 640),
+      const _CompressionPreset(quality: 45, minWidth: 560, minHeight: 560),
+      const _CompressionPreset(quality: 35, minWidth: 480, minHeight: 480),
+    ];
+
+    XFile current = source;
+    for (int i = 0; i < presets.length; i++) {
+      final _CompressionPreset preset = presets[i];
+      final XFile? compressed = await FlutterImageCompress.compressAndGetFile(
+        current.path,
+        '${source.path}_sync_$i.jpg',
+        quality: preset.quality,
+        minWidth: preset.minWidth,
+        minHeight: preset.minHeight,
+      );
+      if (compressed == null) {
+        continue;
+      }
+      current = compressed;
+      final int sizeInBytes = await File(current.path).length();
+      if (sizeInBytes <= _maxFirestoreImageBytes) {
+        return current;
+      }
+    }
+    return null;
+  }
+
+  Future<File> _persistImageForListing(XFile image) async {
+    final Directory appDir = await getApplicationDocumentsDirectory();
+    final Directory cropsDir = Directory(path.join(appDir.path, 'crop_images'));
+    if (!await cropsDir.exists()) {
+      await cropsDir.create(recursive: true);
+    }
+
+    final String fileName =
+        'crop_${DateTime.now().millisecondsSinceEpoch}_${const Uuid().v4()}.jpg';
+    final String targetPath = path.join(cropsDir.path, fileName);
+    final File sourceFile = File(image.path);
+
+    // Keep a durable copy under app documents; picker/cache temp files can be cleared.
+    return sourceFile.copy(targetPath);
   }
 
   Future<void> _pickExpiryDate() async {
@@ -479,4 +517,16 @@ class _AddCropScreenState extends State<AddCropScreen> {
       },
     );
   }
+}
+
+class _CompressionPreset {
+  const _CompressionPreset({
+    required this.quality,
+    required this.minWidth,
+    required this.minHeight,
+  });
+
+  final int quality;
+  final int minWidth;
+  final int minHeight;
 }

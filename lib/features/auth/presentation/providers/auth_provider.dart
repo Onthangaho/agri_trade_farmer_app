@@ -45,18 +45,18 @@ class AuthProvider extends ChangeNotifier {
     try {
       final UserCredential credential = await _auth.signInWithEmailAndPassword(
         email: email.trim(),
-        password: password.trim(),
+        password: password,
       );
       _firebaseUser = credential.user;
-      _logger.i('Sign in successful for ${credential.user?.email}');
+      _logger.i('Sign in successful');
       return true;
     } on FirebaseAuthException catch (e) {
       _errorMessage = _mapFirebaseErrorToMessage(e.code);
-      _logger.e('Sign in failed: ${e.code} - $e');
+      _logger.e('Sign in failed: ${e.code}');
       return false;
     } catch (e) {
       _errorMessage = 'Authentication failed. Please try again.';
-      _logger.e('Sign in unexpected error: $e');
+      _logger.e('Sign in unexpected error');
       return false;
     } finally {
       _isLoading = false;
@@ -76,7 +76,7 @@ class AuthProvider extends ChangeNotifier {
     try {
       final UserCredential credential = await _auth.createUserWithEmailAndPassword(
         email: email.trim(),
-        password: password.trim(),
+        password: password,
       );
 
       // Update display name
@@ -86,15 +86,15 @@ class AuthProvider extends ChangeNotifier {
         _firebaseUser = _auth.currentUser;
       }
 
-      _logger.i('Registration successful for $email');
+      _logger.i('Registration successful');
       return true;
     } on FirebaseAuthException catch (e) {
       _errorMessage = _mapFirebaseErrorToMessage(e.code);
-      _logger.e('Registration failed: ${e.code} - $e');
+      _logger.e('Registration failed: ${e.code}');
       return false;
     } catch (e) {
       _errorMessage = 'Registration failed. Please try again.';
-      _logger.e('Registration unexpected error: $e');
+      _logger.e('Registration unexpected error');
       return false;
     } finally {
       _isLoading = false;
@@ -109,15 +109,15 @@ class AuthProvider extends ChangeNotifier {
 
     try {
       await _auth.sendPasswordResetEmail(email: email.trim());
-      _logger.i('Password reset email sent to $email');
+      _logger.i('Password reset email sent');
       return true;
     } on FirebaseAuthException catch (e) {
       _errorMessage = _mapFirebaseErrorToMessage(e.code);
-      _logger.e('Password reset failed: ${e.code} - $e');
+      _logger.e('Password reset failed: ${e.code}');
       return false;
     } catch (e) {
       _errorMessage = 'Failed to send reset email. Please try again.';
-      _logger.e('Password reset unexpected error: $e');
+      _logger.e('Password reset unexpected error');
       return false;
     } finally {
       _isLoading = false;
@@ -133,7 +133,8 @@ class AuthProvider extends ChangeNotifier {
       _logger.i('Sign out successful');
       notifyListeners();
     } catch (e) {
-      _logger.e('Sign out failed: $e');
+      _logger.e('Sign out failed');
+      rethrow;
     }
   }
 

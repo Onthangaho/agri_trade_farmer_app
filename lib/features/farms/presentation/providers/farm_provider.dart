@@ -122,7 +122,13 @@ class FarmProvider extends ChangeNotifier {
       } else {
         _errorMessage = 'Showing saved farm details.';
       }
-      _logger.w('loadFarm Firebase fallback to local', error: error, stackTrace: stackTrace);
+      if (error.code != 'unavailable') {
+        _logger.w(
+          'loadFarm Firebase fallback to local',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
     } catch (error, stackTrace) {
       final Map<String, dynamic>? localFarm =
           await _databaseHelper.getFarmByUserId(userId);
@@ -160,16 +166,16 @@ class FarmProvider extends ChangeNotifier {
     _successMessage = null;
     notifyListeners();
 
+    final int updatedAtMillis = DateTime.now().millisecondsSinceEpoch;
     final Map<String, dynamic> data = <String, dynamic>{
       'farmerId': userId,
       'name': resolvedFarmName.trim(),
       'sizeHa': resolvedSizeHa,
-      'updatedAt': Timestamp.now(),
+      'updatedAt': Timestamp.fromMillisecondsSinceEpoch(updatedAtMillis),
     };
 
     try {
-      await _firestore.collection('farms').doc(userId).set(data, SetOptions(merge: true));
-
+      // Always persist locally first so farm setup works offline.
       await _databaseHelper.insertFarm(<String, dynamic>{
         DatabaseConstants.columnId: userId,
         DatabaseConstants.columnFarmerId: userId,
@@ -178,8 +184,8 @@ class FarmProvider extends ChangeNotifier {
         DatabaseConstants.columnLongitude: _farmData?['longitude'],
         DatabaseConstants.columnSizeHa: resolvedSizeHa,
         DatabaseConstants.columnAddress: _farmData?['address'],
-        DatabaseConstants.columnUpdatedAt: DateTime.now().millisecondsSinceEpoch,
-        DatabaseConstants.columnSynced: 1,
+        DatabaseConstants.columnUpdatedAt: updatedAtMillis,
+        DatabaseConstants.columnSynced: 0,
       });
 
       _farmData = <String, dynamic>{
@@ -187,7 +193,32 @@ class FarmProvider extends ChangeNotifier {
         'id': userId,
         ...data,
       };
-      _successMessage = 'Farm details saved successfully.';
+      notifyListeners();
+
+      try {
+        await _firestore
+            .collection('farms')
+            .doc(userId)
+            .set(data, SetOptions(merge: true));
+        await _databaseHelper.markFarmSynced(userId);
+        _successMessage = 'Farm details saved successfully.';
+      } on FirebaseException catch (error, stackTrace) {
+        if (error.code == 'unavailable') {
+          _successMessage = 'Farm saved offline. It will sync when online.';
+        } else {
+          _errorMessage = 'Could not sync farm to cloud right now.';
+          _logger.e(
+            'saveFarm Firebase sync failed',
+            error: error,
+            stackTrace: stackTrace,
+          );
+          return false;
+        }
+      } catch (error, stackTrace) {
+        _errorMessage = 'Could not sync farm to cloud right now.';
+        _logger.e('saveFarm sync failed', error: error, stackTrace: stackTrace);
+        return false;
+      }
       return true;
     } on FirebaseException catch (error, stackTrace) {
       _errorMessage = 'Could not save farm details.';
@@ -249,10 +280,31 @@ class FarmProvider extends ChangeNotifier {
         'updatedAt': Timestamp.now(),
       };
 
-      await FirebaseFirestore.instance
-          .collection('farms')
-          .doc(userId)
-          .set(data, SetOptions(merge: true));
+      await _databaseHelper.insertFarm(<String, dynamic>{
+        DatabaseConstants.columnId: userId,
+        DatabaseConstants.columnFarmerId: userId,
+        DatabaseConstants.columnName:
+            (_farmData?['name'] as String?) ?? 'My Farm',
+        DatabaseConstants.columnLatitude: pos.latitude,
+        DatabaseConstants.columnLongitude: pos.longitude,
+        DatabaseConstants.columnSizeHa: _farmData?['sizeHa'],
+        DatabaseConstants.columnAddress: data['address'],
+        DatabaseConstants.columnUpdatedAt: DateTime.now().millisecondsSinceEpoch,
+        DatabaseConstants.columnSynced: 0,
+      });
+
+      try {
+        await _firestore
+            .collection('farms')
+            .doc(userId)
+            .set(data, SetOptions(merge: true));
+        await _databaseHelper.markFarmSynced(userId);
+      } on FirebaseException catch (error) {
+        if (error.code != 'unavailable') {
+          _errorMessage = 'Could not sync location to cloud.';
+          return false;
+        }
+      }
 
       _farmData = <String, dynamic>{
         ...?_farmData,

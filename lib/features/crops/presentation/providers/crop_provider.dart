@@ -2,6 +2,7 @@
 /// Crop provider with SQLite-first persistence and Firestore sync.
 
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
@@ -18,6 +19,8 @@ import '../../domain/use_cases/save_crop_use_case.dart';
 import '../../domain/use_cases/update_crop_use_case.dart';
 
 class CropProvider extends ChangeNotifier {
+  static const int _maxFirestoreImageBytes = 520 * 1024;
+
   CropProvider({
     required GetCropsUseCase getCrops,
     required SaveCropUseCase saveCrop,
@@ -99,6 +102,10 @@ class CropProvider extends ChangeNotifier {
       final List<Map<String, dynamic>> localRows =
           await dbHelper.getCropsByFarmer(farmerId);
       localCrops = localRows.map(_fromMap).toList(growable: false);
+
+      // Backfill missing local imageUrl values from durable local files so
+      // previously saved crops keep rendering images after refresh/navigation.
+      localCrops = await _backfillLocalImageUrls(localCrops, dbHelper);
       _crops = localCrops;
       notifyListeners();
     } catch (error, stackTrace) {
@@ -129,20 +136,27 @@ class CropProvider extends ChangeNotifier {
           // Never overwrite newer local unsynced edits with stale cloud copies.
           continue;
         }
-        await dbHelper.insertCrop(_toMap(remoteCrop, synced: 1));
+        // If cloud doesn't have an image (e.g. Firestore saved without imageUrl),
+        // keep the locally available image path so the UI won't "lose" images
+        // after refresh/navigation.
+        CropEntity cropToPersist = remoteCrop;
+        final bool remoteHasImage =
+            remoteCrop.imageUrl != null && remoteCrop.imageUrl!.isNotEmpty;
+        if (!remoteHasImage &&
+            localMatch != null) {
+          cropToPersist = remoteCrop.copyWith(
+            imageUrl: localMatch.imageUrl,
+            localImagePath: localMatch.localImagePath,
+          );
+        }
+
+        await dbHelper.insertCrop(_toMap(cropToPersist, synced: 1));
       }
 
-      final Map<String, CropEntity> mergedById = <String, CropEntity>{
-        for (final CropEntity crop in remoteCrops) crop.id: crop,
-      };
-      for (final CropEntity localCrop in localCrops) {
-        final CropEntity? existing = mergedById[localCrop.id];
-        if (existing == null || !localCrop.synced) {
-          mergedById[localCrop.id] = localCrop;
-        }
-      }
-      _crops = mergedById.values.toList(growable: false)
-        ..sort((CropEntity a, CropEntity b) => b.listedAt.compareTo(a.listedAt));
+      _crops = mergeLocalAndRemoteCrops(
+        localCrops: localCrops,
+        remoteCrops: remoteCrops,
+      );
     } on FirebaseException catch (error, stackTrace) {
       hasRemoteFailure = true;
       _logger.e(
@@ -171,6 +185,35 @@ class CropProvider extends ChangeNotifier {
     }
   }
 
+  Future<List<CropEntity>> _backfillLocalImageUrls(
+    List<CropEntity> crops,
+    DatabaseHelper dbHelper,
+  ) async {
+    final List<CropEntity> updated = List<CropEntity>.from(crops);
+    for (int i = 0; i < updated.length; i++) {
+      final CropEntity crop = updated[i];
+      final bool missingImageUrl = crop.imageUrl == null || crop.imageUrl!.isEmpty;
+      final bool hasLocalPath =
+          crop.localImagePath != null && crop.localImagePath!.isNotEmpty;
+      if (!missingImageUrl || !hasLocalPath) {
+        continue;
+      }
+
+      final String? resolvedImageUrl = _resolveFirestoreImageUrl(crop);
+      if (resolvedImageUrl == null || resolvedImageUrl.isEmpty) {
+        continue;
+      }
+
+      final CropEntity refreshed = crop.copyWith(imageUrl: resolvedImageUrl);
+      updated[i] = refreshed;
+      await dbHelper.updateCrop(
+        refreshed.id,
+        _toMap(refreshed, synced: refreshed.synced ? 1 : 0),
+      );
+    }
+    return updated;
+  }
+
   Future<bool> saveCrop(CropEntity crop, {File? imageFile}) async {
     _isSaving = true;
     _errorMessage = null;
@@ -179,6 +222,9 @@ class CropProvider extends ChangeNotifier {
 
     final String cropId = crop.id.trim().isEmpty ? const Uuid().v4() : crop.id;
     final CropEntity cropToSave = crop.copyWith(id: cropId, synced: false);
+    final CropEntity locallyResolvedCrop = cropToSave.copyWith(
+      imageUrl: _resolveFirestoreImageUrl(cropToSave) ?? cropToSave.imageUrl,
+    );
 
     if (!_useDirectPersistence) {
       try {
@@ -204,8 +250,8 @@ class CropProvider extends ChangeNotifier {
     final FirebaseFirestore firestore = _firestore!;
 
     try {
-      await dbHelper.insertCrop(_toMap(cropToSave, synced: 0));
-      _upsertLocalCrop(cropToSave);
+      await dbHelper.insertCrop(_toMap(locallyResolvedCrop, synced: 0));
+      _upsertLocalCrop(locallyResolvedCrop);
       notifyListeners();
     } catch (error, stackTrace) {
       _logger.e('saveCrop local write failed', error: error, stackTrace: stackTrace);
@@ -216,12 +262,18 @@ class CropProvider extends ChangeNotifier {
     }
 
     try {
+      final String? firestoreImage = locallyResolvedCrop.imageUrl;
       await firestore
           .collection('crops')
           .doc(cropId)
-          .set(_toFirestore(cropToSave), SetOptions(merge: true));
+          .set(_toFirestore(locallyResolvedCrop), SetOptions(merge: true));
       await dbHelper.markCropSynced(cropId);
-      _upsertLocalCrop(cropToSave.copyWith(synced: true));
+      _upsertLocalCrop(
+        locallyResolvedCrop.copyWith(
+          synced: true,
+          imageUrl: firestoreImage ?? locallyResolvedCrop.imageUrl,
+        ),
+      );
       _successMessage = 'Crop saved successfully.';
       return true;
     } on FirebaseException catch (error, stackTrace) {
@@ -249,6 +301,9 @@ class CropProvider extends ChangeNotifier {
     notifyListeners();
 
     final CropEntity updatedCrop = crop.copyWith(synced: false);
+    final CropEntity locallyResolvedCrop = updatedCrop.copyWith(
+      imageUrl: _resolveFirestoreImageUrl(updatedCrop) ?? updatedCrop.imageUrl,
+    );
 
     if (!_useDirectPersistence) {
       try {
@@ -272,8 +327,11 @@ class CropProvider extends ChangeNotifier {
     final FirebaseFirestore firestore = _firestore!;
 
     try {
-      await dbHelper.updateCrop(updatedCrop.id, _toMap(updatedCrop, synced: 0));
-      _upsertLocalCrop(updatedCrop);
+      await dbHelper.updateCrop(
+        locallyResolvedCrop.id,
+        _toMap(locallyResolvedCrop, synced: 0),
+      );
+      _upsertLocalCrop(locallyResolvedCrop);
       notifyListeners();
     } catch (error, stackTrace) {
       _logger.e('updateCrop local update failed', error: error, stackTrace: stackTrace);
@@ -284,12 +342,18 @@ class CropProvider extends ChangeNotifier {
     }
 
     try {
+      final String? firestoreImage = locallyResolvedCrop.imageUrl;
       await firestore
           .collection('crops')
-          .doc(updatedCrop.id)
-          .set(_toFirestore(updatedCrop), SetOptions(merge: true));
-      await dbHelper.markCropSynced(updatedCrop.id);
-      _upsertLocalCrop(updatedCrop.copyWith(synced: true));
+          .doc(locallyResolvedCrop.id)
+          .set(_toFirestore(locallyResolvedCrop), SetOptions(merge: true));
+      await dbHelper.markCropSynced(locallyResolvedCrop.id);
+      _upsertLocalCrop(
+        locallyResolvedCrop.copyWith(
+          synced: true,
+          imageUrl: firestoreImage ?? locallyResolvedCrop.imageUrl,
+        ),
+      );
       _successMessage = 'Crop updated successfully.';
     } on FirebaseException catch (error, stackTrace) {
       _logger.e('updateCrop Firestore update failed', error: error, stackTrace: stackTrace);
@@ -391,6 +455,34 @@ class CropProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  @visibleForTesting
+  List<CropEntity> mergeLocalAndRemoteCrops({
+    required List<CropEntity> localCrops,
+    required List<CropEntity> remoteCrops,
+  }) {
+    final Map<String, CropEntity> mergedById = <String, CropEntity>{
+      for (final CropEntity crop in remoteCrops) crop.id: crop,
+    };
+    for (final CropEntity localCrop in localCrops) {
+      final CropEntity? existing = mergedById[localCrop.id];
+      final bool existingHasRemoteImage =
+          existing?.imageUrl != null && (existing?.imageUrl?.isNotEmpty ?? false);
+      final bool localHasImageUrl =
+          localCrop.imageUrl != null && localCrop.imageUrl!.isNotEmpty;
+      final bool localHasLocalImage =
+          localCrop.localImagePath != null && localCrop.localImagePath!.isNotEmpty;
+
+      if (existing == null ||
+          !localCrop.synced ||
+          (!existingHasRemoteImage && (localHasImageUrl || localHasLocalImage))) {
+        mergedById[localCrop.id] = localCrop;
+      }
+    }
+    final List<CropEntity> merged = mergedById.values.toList(growable: false);
+    merged.sort((CropEntity a, CropEntity b) => b.listedAt.compareTo(a.listedAt));
+    return merged;
+  }
+
   void _upsertLocalCrop(CropEntity crop) {
     final int index = _crops.indexWhere((CropEntity item) => item.id == crop.id);
     if (index == -1) {
@@ -422,18 +514,53 @@ class CropProvider extends ChangeNotifier {
   }
 
   Map<String, dynamic> _toFirestore(CropEntity crop) {
+    final String? firestoreImage = _resolveFirestoreImageUrl(crop);
     return <String, dynamic>{
       'farmerId': crop.farmerId,
       'name': crop.name,
       'quantity': crop.quantity,
       'unit': crop.unit,
       'pricePerUnit': crop.pricePerUnit,
-      'imageUrl': crop.imageUrl,
+      'imageUrl': firestoreImage,
       'description': crop.description,
       'listedAt': Timestamp.fromDate(crop.listedAt),
       'expiresAt': crop.expiresAt == null ? null : Timestamp.fromDate(crop.expiresAt!),
       'status': crop.status,
     };
+  }
+
+  String? _resolveFirestoreImageUrl(CropEntity crop) {
+    final String? imageUrl = crop.imageUrl;
+    if (imageUrl != null && imageUrl.isNotEmpty) {
+      return imageUrl;
+    }
+    final String? localPath = crop.localImagePath;
+    if (localPath == null || localPath.isEmpty) {
+      return null;
+    }
+    try {
+      final File imageFile = File(localPath);
+      if (!imageFile.existsSync()) {
+        return null;
+      }
+      final List<int> bytes = imageFile.readAsBytesSync();
+      if (bytes.isEmpty) {
+        return null;
+      }
+      if (bytes.length > _maxFirestoreImageBytes) {
+        _errorMessage ??=
+            'Photo too large for cloud sync. Crop saved locally; use a smaller image.';
+        return null;
+      }
+      return 'data:image/jpeg;base64,${base64Encode(bytes)}';
+    } catch (error, stackTrace) {
+      _logger.w(
+        'resolveFirestoreImageUrl failed, continuing without image',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return null;
+    }
   }
 
   CropEntity _fromMap(Map<String, dynamic> map) {

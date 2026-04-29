@@ -1,10 +1,12 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/constants/app_colors.dart';
+import '../../../marketplace/presentation/providers/marketplace_provider.dart';
 import '../providers/crop_provider.dart';
 import '../../domain/entities/crop_entity.dart';
 
@@ -31,12 +33,20 @@ class CropDetailScreen extends StatelessWidget {
       description: 'This crop listing could not be loaded.',
     );
 
-    final CropEntity selectedCrop = crop ??
-        argCrop ??
-        context.read<CropProvider>().crops.firstWhere(
-              (CropEntity c) => c.id == cropId,
-              orElse: () => fallback,
-            );
+    CropEntity selectedCrop = crop ?? argCrop ?? fallback;
+    if (selectedCrop.id.isEmpty && cropId != null && cropId.isNotEmpty) {
+      final CropProvider cropProvider = context.read<CropProvider>();
+      final MarketplaceProvider marketplaceProvider =
+          context.read<MarketplaceProvider>();
+
+      selectedCrop = cropProvider.crops.firstWhere(
+        (CropEntity c) => c.id == cropId,
+        orElse: () => marketplaceProvider.listings.firstWhere(
+          (CropEntity c) => c.id == cropId,
+          orElse: () => fallback,
+        ),
+      );
+    }
 
     return Scaffold(
       backgroundColor: AppColors.backgroundCream,
@@ -185,11 +195,28 @@ class CropDetailScreen extends StatelessWidget {
 
   Widget _buildHeroImage(CropEntity crop) {
     if (crop.imageUrl != null && crop.imageUrl!.isNotEmpty) {
+      final String imageUrl = crop.imageUrl!;
+      if (imageUrl.startsWith('data:image')) {
+        final ImageProvider<Object>? memoryProvider = _memoryImageProvider(imageUrl);
+        if (memoryProvider != null) {
+          return Image(
+            image: memoryProvider,
+            width: double.infinity,
+            height: 220,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => _heroPlaceholder(),
+          );
+        }
+
+        // If it can't be decoded, avoid trying to treat it as a network URL.
+        return _heroPlaceholder();
+      }
       return CachedNetworkImage(
-        imageUrl: crop.imageUrl!,
+        imageUrl: imageUrl,
         width: double.infinity,
         height: 220,
         fit: BoxFit.cover,
+        errorWidget: (context, url, error) => _heroPlaceholder(),
       );
     }
 
@@ -199,9 +226,14 @@ class CropDetailScreen extends StatelessWidget {
         width: double.infinity,
         height: 220,
         fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => _heroPlaceholder(),
       );
     }
 
+    return _heroPlaceholder();
+  }
+
+  Widget _heroPlaceholder() {
     return Container(
       width: double.infinity,
       height: 220,
@@ -214,6 +246,18 @@ class CropDetailScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  ImageProvider<Object>? _memoryImageProvider(String dataUri) {
+    final int commaIndex = dataUri.indexOf(',');
+    if (commaIndex <= 0 || commaIndex >= dataUri.length - 1) {
+      return null;
+    }
+    try {
+      return MemoryImage(base64Decode(dataUri.substring(commaIndex + 1)));
+    } catch (_) {
+      return null;
+    }
   }
 
   Widget _statusChip(CropEntity crop) {

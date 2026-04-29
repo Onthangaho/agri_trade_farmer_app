@@ -69,11 +69,12 @@ class MarketplaceProvider extends ChangeNotifier {
       final QuerySnapshot<Map<String, dynamic>> snapshot = await _firestore
           .collection('crops')
           .where('status', isEqualTo: 'active')
-          .orderBy('listedAt', descending: true)
           .get();
+      final List<CropEntity> remoteCrops = snapshot.docs
+          .map(CropModel.fromFirestore)
+          .toList(growable: false)
+        ..sort((CropEntity a, CropEntity b) => b.listedAt.compareTo(a.listedAt));
 
-      final List<CropEntity> remoteCrops =
-          snapshot.docs.map(CropModel.fromFirestore).toList(growable: false);
       _allListings = remoteCrops;
       _hasLoaded = true;
       _applyFilters();

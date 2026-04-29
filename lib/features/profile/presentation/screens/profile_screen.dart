@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
 import 'package:provider/provider.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../../routes/route_names.dart';
+import '../../../../shared/providers/connectivity_provider.dart';
+import '../../../../shared/widgets/logout_confirmation_dialog.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../crops/presentation/providers/crop_provider.dart';
 import '../providers/profile_provider.dart';
@@ -32,11 +35,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer2<ProfileProvider, CropProvider>(
+    return Consumer3<ProfileProvider, CropProvider, ConnectivityProvider>(
       builder: (
         BuildContext context,
         ProfileProvider profileProvider,
         CropProvider cropProvider,
+        ConnectivityProvider connectivityProvider,
         Widget? child,
       ) {
         final int activeListings = cropProvider.crops
@@ -47,6 +51,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
           backgroundColor: AppColors.backgroundCream,
           body: Column(
             children: <Widget>[
+              if (!connectivityProvider.isOnline)
+                Container(
+                  width: double.infinity,
+                  color: AppColors.accentAmber.withValues(alpha: 0.18),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: const Text(
+                    'Cloud is offline. Showing locally available profile data.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontFamily: 'NunitoSans',
+                      color: AppColors.navyText,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
               _HeaderSection(provider: profileProvider),
               Expanded(
                 child: profileProvider.isLoading
@@ -115,7 +134,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       context.read<AuthProvider>();
                                   final NavigatorState navigator =
                                       Navigator.of(context);
-                                  await authProvider.signOut();
+                                  final ScaffoldMessengerState messenger =
+                                      ScaffoldMessenger.of(context);
+                                  final bool shouldLogout =
+                                      await showLogoutConfirmationDialog(context);
+                                  if (!shouldLogout || !mounted) {
+                                    return;
+                                  }
+                                  try {
+                                    await authProvider.signOut();
+                                  } catch (_) {
+                                    if (!mounted) {
+                                      return;
+                                    }
+                                    messenger.showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Could not sign out. Please try again.',
+                                        ),
+                                      ),
+                                    );
+                                    return;
+                                  }
                                   if (!mounted) {
                                     return;
                                   }
@@ -166,6 +206,7 @@ class _HeaderSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final String imageUrl = provider.profileImageUrl;
+    final ImageProvider<Object>? avatarImage = _profileImageProvider(imageUrl);
     return Container(
       width: double.infinity,
       color: AppColors.primaryGreen,
@@ -175,8 +216,7 @@ class _HeaderSection extends StatelessWidget {
           CircleAvatar(
             radius: 46,
             backgroundColor: AppColors.primaryGreenLight,
-            backgroundImage:
-                imageUrl.isNotEmpty ? NetworkImage(imageUrl) : null,
+            backgroundImage: avatarImage,
             child: imageUrl.isEmpty
                 ? Text(
                     _initials(provider.displayName),
@@ -211,6 +251,24 @@ class _HeaderSection extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  ImageProvider<Object>? _profileImageProvider(String value) {
+    if (value.isEmpty) {
+      return null;
+    }
+    if (value.startsWith('data:image')) {
+      final int index = value.indexOf(',');
+      if (index <= 0) {
+        return null;
+      }
+      try {
+        return MemoryImage(base64Decode(value.substring(index + 1)));
+      } catch (_) {
+        return null;
+      }
+    }
+    return NetworkImage(value);
   }
 }
 

@@ -2,12 +2,14 @@
 /// Crop inventory screen showing farmer listings with offline-first CRUD feedback.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../../routes/route_names.dart';
+import '../../../../shared/providers/connectivity_provider.dart';
 import '../../../../shared/widgets/crop_card.dart';
 import '../../../../shared/widgets/empty_state_widget.dart';
 import '../../../../shared/widgets/shimmer_loader.dart';
@@ -23,10 +25,13 @@ class MyCropsScreen extends StatefulWidget {
 
 class _MyCropsScreenState extends State<MyCropsScreen> {
   CropProvider? _provider;
+  final ScrollController _scrollController = ScrollController();
+  bool _showFab = true;
 
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_handleScrollForFab);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) {
         return;
@@ -45,7 +50,29 @@ class _MyCropsScreenState extends State<MyCropsScreen> {
   @override
   void dispose() {
     _provider?.removeListener(_handleProviderEvents);
+    _scrollController
+      ..removeListener(_handleScrollForFab)
+      ..dispose();
     super.dispose();
+  }
+
+  void _handleScrollForFab() {
+    if (!_scrollController.hasClients) {
+      return;
+    }
+    final ScrollDirection direction = _scrollController.position.userScrollDirection;
+    if (direction == ScrollDirection.idle) {
+      return;
+    }
+    if (direction == ScrollDirection.reverse && _showFab) {
+      setState(() {
+        _showFab = false;
+      });
+    } else if (direction == ScrollDirection.forward && !_showFab) {
+      setState(() {
+        _showFab = true;
+      });
+    }
   }
 
   void _handleProviderEvents() {
@@ -95,16 +122,47 @@ class _MyCropsScreenState extends State<MyCropsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<CropProvider>(
-      builder: (BuildContext context, CropProvider provider, Widget? child) {
+    return Consumer2<CropProvider, ConnectivityProvider>(
+      builder: (
+        BuildContext context,
+        CropProvider provider,
+        ConnectivityProvider connectivityProvider,
+        Widget? child,
+      ) {
         return Scaffold(
           backgroundColor: AppColors.backgroundCream,
-          body: _buildBody(provider),
-          floatingActionButton: FloatingActionButton(
-            backgroundColor: AppColors.accentAmber,
-            onPressed: () => Navigator.pushNamed(context, RouteNames.addCrop),
-            child: const Icon(Icons.add, color: AppColors.navyText),
+          body: Column(
+            children: <Widget>[
+              if (!connectivityProvider.isOnline)
+                Container(
+                  width: double.infinity,
+                  color: AppColors.accentAmber.withValues(alpha: 0.18),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: const Text(
+                    'Cloud is offline. Showing locally saved crops.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontFamily: 'NunitoSans',
+                      color: AppColors.navyText,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              Expanded(child: _buildBody(provider)),
+            ],
           ),
+          floatingActionButton: _showFab
+              ? FloatingActionButton(
+                  heroTag: 'my_crops_fab',
+                  backgroundColor: AppColors.accentAmber,
+                  foregroundColor: AppColors.navyText,
+                  tooltip: 'List a crop',
+                  onPressed: () => Navigator.pushNamed(context, RouteNames.addCrop),
+                  child: const Icon(Icons.add, size: 28),
+                )
+              : null,
+          floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
         );
       },
     );
@@ -113,8 +171,9 @@ class _MyCropsScreenState extends State<MyCropsScreen> {
   Widget _buildBody(CropProvider provider) {
     if (provider.isLoading) {
       return ListView.builder(
+        controller: _scrollController,
         itemCount: 5,
-        padding: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.only(bottom: 100),
         itemBuilder: (BuildContext context, int index) {
           return const ShimmerCropCard();
         },
@@ -126,13 +185,15 @@ class _MyCropsScreenState extends State<MyCropsScreen> {
         color: AppColors.primaryGreen,
         onRefresh: _refreshCrops,
         child: ListView(
+          controller: _scrollController,
+          padding: const EdgeInsets.only(bottom: 100),
           physics: AlwaysScrollableScrollPhysics(),
           children: <Widget>[
             SizedBox(height: 120),
             EmptyStateWidget(
               icon: Icons.grass_outlined,
               title: 'No crops listed yet',
-              subtitle: 'Tap + to add your first crop',
+              subtitle: 'Tap List Crop (below) or use Add in the bottom bar.',
             ),
           ],
         ),
@@ -143,8 +204,9 @@ class _MyCropsScreenState extends State<MyCropsScreen> {
       color: AppColors.primaryGreen,
       onRefresh: _refreshCrops,
       child: ListView.builder(
+        controller: _scrollController,
         itemCount: provider.crops.length,
-        padding: const EdgeInsets.only(bottom: 96),
+        padding: const EdgeInsets.only(bottom: 100),
         itemBuilder: (BuildContext context, int index) {
           final CropEntity crop = provider.crops[index];
           return Dismissible(
@@ -193,6 +255,7 @@ class _MyCropsScreenState extends State<MyCropsScreen> {
             child: CropCard(
               crop: crop,
               index: index,
+              layout: CropCardLayout.horizontal,
             )
                 .animate(delay: Duration(milliseconds: index * 60))
                 .fadeIn(duration: 300.ms)

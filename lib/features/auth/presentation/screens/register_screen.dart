@@ -21,8 +21,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _confirmPasswordController = TextEditingController();
-  bool _obscurePassword = true;
-  bool _obscureConfirmPassword = true;
+  bool _obscurePassword = false;
+  bool _obscureConfirmPassword = false;
 
   @override
   void dispose() {
@@ -152,8 +152,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         textCapitalization: TextCapitalization.words,
                         style: const TextStyle(
                           fontFamily: 'NunitoSans',
-                          color: AppColors.backgroundCream,
+                          color: AppColors.navyText,
                         ),
+                        cursorColor: AppColors.primaryGreen,
                         decoration: InputDecoration(
                           labelText: 'Full Name',
                           labelStyle: const TextStyle(
@@ -200,8 +201,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         keyboardType: TextInputType.emailAddress,
                         style: const TextStyle(
                           fontFamily: 'NunitoSans',
-                          color: AppColors.backgroundCream,
+                          color: AppColors.navyText,
                         ),
+                        cursorColor: AppColors.primaryGreen,
                         decoration: InputDecoration(
                           labelText: 'Email',
                           labelStyle: const TextStyle(
@@ -248,8 +250,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         obscureText: _obscurePassword,
                         style: const TextStyle(
                           fontFamily: 'NunitoSans',
-                          color: AppColors.backgroundCream,
+                          color: AppColors.navyText,
                         ),
+                        cursorColor: AppColors.primaryGreen,
                         decoration: InputDecoration(
                           labelText: 'Password',
                           labelStyle: const TextStyle(
@@ -310,8 +313,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         obscureText: _obscureConfirmPassword,
                         style: const TextStyle(
                           fontFamily: 'NunitoSans',
-                          color: AppColors.backgroundCream,
+                          color: AppColors.navyText,
                         ),
+                        cursorColor: AppColors.primaryGreen,
                         decoration: InputDecoration(
                           labelText: 'Confirm Password',
                           labelStyle: const TextStyle(
