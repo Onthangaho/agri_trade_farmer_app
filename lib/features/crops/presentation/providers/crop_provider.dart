@@ -2,6 +2,7 @@
 /// Crop provider with SQLite-first persistence and Firestore sync.
 
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
@@ -18,6 +19,8 @@ import '../../domain/use_cases/save_crop_use_case.dart';
 import '../../domain/use_cases/update_crop_use_case.dart';
 
 class CropProvider extends ChangeNotifier {
+  static const int _maxFirestoreImageBytes = 520 * 1024;
+
   CropProvider({
     required GetCropsUseCase getCrops,
     required SaveCropUseCase saveCrop,
@@ -434,18 +437,53 @@ class CropProvider extends ChangeNotifier {
   }
 
   Map<String, dynamic> _toFirestore(CropEntity crop) {
+    final String? firestoreImage = _resolveFirestoreImageUrl(crop);
     return <String, dynamic>{
       'farmerId': crop.farmerId,
       'name': crop.name,
       'quantity': crop.quantity,
       'unit': crop.unit,
       'pricePerUnit': crop.pricePerUnit,
-      'imageUrl': crop.imageUrl,
+      'imageUrl': firestoreImage,
       'description': crop.description,
       'listedAt': Timestamp.fromDate(crop.listedAt),
       'expiresAt': crop.expiresAt == null ? null : Timestamp.fromDate(crop.expiresAt!),
       'status': crop.status,
     };
+  }
+
+  String? _resolveFirestoreImageUrl(CropEntity crop) {
+    final String? imageUrl = crop.imageUrl;
+    if (imageUrl != null && imageUrl.isNotEmpty) {
+      return imageUrl;
+    }
+    final String? localPath = crop.localImagePath;
+    if (localPath == null || localPath.isEmpty) {
+      return null;
+    }
+    try {
+      final File imageFile = File(localPath);
+      if (!imageFile.existsSync()) {
+        return null;
+      }
+      final List<int> bytes = imageFile.readAsBytesSync();
+      if (bytes.isEmpty) {
+        return null;
+      }
+      if (bytes.length > _maxFirestoreImageBytes) {
+        _errorMessage ??=
+            'Photo too large for cloud sync. Crop saved locally; use a smaller image.';
+        return null;
+      }
+      return 'data:image/jpeg;base64,${base64Encode(bytes)}';
+    } catch (error, stackTrace) {
+      _logger.w(
+        'resolveFirestoreImageUrl failed, continuing without image',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return null;
+    }
   }
 
   CropEntity _fromMap(Map<String, dynamic> map) {

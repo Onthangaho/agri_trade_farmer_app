@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -185,11 +186,25 @@ class CropDetailScreen extends StatelessWidget {
 
   Widget _buildHeroImage(CropEntity crop) {
     if (crop.imageUrl != null && crop.imageUrl!.isNotEmpty) {
+      final String imageUrl = crop.imageUrl!;
+      if (imageUrl.startsWith('data:image')) {
+        final ImageProvider<Object>? memoryProvider = _memoryImageProvider(imageUrl);
+        if (memoryProvider != null) {
+          return Image(
+            image: memoryProvider,
+            width: double.infinity,
+            height: 220,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => _heroPlaceholder(),
+          );
+        }
+      }
       return CachedNetworkImage(
-        imageUrl: crop.imageUrl!,
+        imageUrl: imageUrl,
         width: double.infinity,
         height: 220,
         fit: BoxFit.cover,
+        errorWidget: (context, url, error) => _heroPlaceholder(),
       );
     }
 
@@ -199,9 +214,14 @@ class CropDetailScreen extends StatelessWidget {
         width: double.infinity,
         height: 220,
         fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => _heroPlaceholder(),
       );
     }
 
+    return _heroPlaceholder();
+  }
+
+  Widget _heroPlaceholder() {
     return Container(
       width: double.infinity,
       height: 220,
@@ -214,6 +234,18 @@ class CropDetailScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  ImageProvider<Object>? _memoryImageProvider(String dataUri) {
+    final int commaIndex = dataUri.indexOf(',');
+    if (commaIndex <= 0 || commaIndex >= dataUri.length - 1) {
+      return null;
+    }
+    try {
+      return MemoryImage(base64Decode(dataUri.substring(commaIndex + 1)));
+    } catch (_) {
+      return null;
+    }
   }
 
   Widget _statusChip(CropEntity crop) {

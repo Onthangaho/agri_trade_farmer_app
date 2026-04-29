@@ -20,7 +20,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-  bool _obscurePassword = true;
+  bool _obscurePassword = false;
 
   @override
   void dispose() {
@@ -131,8 +131,9 @@ class _LoginScreenState extends State<LoginScreen> {
                         keyboardType: TextInputType.emailAddress,
                         style: const TextStyle(
                           fontFamily: 'NunitoSans',
-                          color: AppColors.backgroundCream,
+                          color: AppColors.navyText,
                         ),
+                        cursorColor: AppColors.primaryGreen,
                         decoration: InputDecoration(
                           labelText: 'Email',
                           labelStyle: const TextStyle(
@@ -179,8 +180,9 @@ class _LoginScreenState extends State<LoginScreen> {
                         obscureText: _obscurePassword,
                         style: const TextStyle(
                           fontFamily: 'NunitoSans',
-                          color: AppColors.backgroundCream,
+                          color: AppColors.navyText,
                         ),
+                        cursorColor: AppColors.primaryGreen,
                         decoration: InputDecoration(
                           labelText: 'Password',
                           labelStyle: const TextStyle(
