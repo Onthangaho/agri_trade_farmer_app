@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../../routes/route_names.dart';
+import '../../../../shared/providers/connectivity_provider.dart';
 import '../../../../shared/widgets/crop_card.dart';
 import '../../../../shared/widgets/shimmer_loader.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
@@ -71,16 +72,44 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.backgroundCream,
-      body: RefreshIndicator(
-        color: AppColors.primaryGreen,
-        onRefresh: () async {
-          _hasLoaded = false;
-          await provider.loadListings(forceRefresh: true);
-          _hasLoaded = true;
-        },
-        child: CustomScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          slivers: <Widget>[
+      body: Column(
+        children: <Widget>[
+          Consumer<ConnectivityProvider>(
+            builder: (
+              BuildContext context,
+              ConnectivityProvider connectivityProvider,
+              Widget? child,
+            ) {
+              if (connectivityProvider.isOnline) {
+                return const SizedBox.shrink();
+              }
+              return Container(
+                width: double.infinity,
+                color: AppColors.accentAmber.withValues(alpha: 0.18),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: const Text(
+                  'Cloud is offline. Showing available cached listings.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontFamily: 'NunitoSans',
+                    color: AppColors.navyText,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              );
+            },
+          ),
+          Expanded(
+            child: RefreshIndicator(
+              color: AppColors.primaryGreen,
+              onRefresh: () async {
+                _hasLoaded = false;
+                await provider.loadListings(forceRefresh: true);
+                _hasLoaded = true;
+              },
+              child: CustomScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                slivers: <Widget>[
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
@@ -140,7 +169,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                     crossAxisCount: 2,
                     crossAxisSpacing: 12,
                     mainAxisSpacing: 12,
-                    childAspectRatio: 0.78,
+                    childAspectRatio: 0.62,
                   ),
                 ),
               )
@@ -168,7 +197,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                           Navigator.pushNamed(
                             context,
                             RouteNames.cropDetail,
-                            arguments: crop.id,
+                            arguments: crop,
                           );
                         },
                       )
@@ -182,13 +211,16 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                     crossAxisCount: 2,
                     crossAxisSpacing: 12,
                     mainAxisSpacing: 12,
-                    childAspectRatio: 0.78,
+                    childAspectRatio: 0.62,
                   ),
                 ),
               ),
-          ],
+                ],
+              ),
+            ),
+          ),
+        ],
         ),
-      ),
     );
   }
 
@@ -219,7 +251,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
               Text(
                 date,
                 style: const TextStyle(
-                  fontFamily: 'Nunito Sans',
+                  fontFamily: 'NunitoSans',
                   color: AppColors.mutedText,
                 ),
               ),
@@ -283,14 +315,14 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFDCFCE7),
+        color: AppColors.successGreen.withValues(alpha: 0.18),
         borderRadius: BorderRadius.circular(14),
       ),
       child: Text(
         '$count listings available today',
         style: const TextStyle(
-          fontFamily: 'Nunito Sans',
-          color: Color(0xFF166534),
+          fontFamily: 'NunitoSans',
+          color: AppColors.primaryGreenDark,
           fontWeight: FontWeight.w700,
         ),
       ),
@@ -355,7 +387,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
             Text(
               'Pull down to refresh when farmers publish crops.',
               style: TextStyle(
-                fontFamily: 'Nunito Sans',
+                fontFamily: 'NunitoSans',
                 color: AppColors.mutedText,
               ),
               textAlign: TextAlign.center,
