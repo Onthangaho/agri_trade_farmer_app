@@ -88,7 +88,7 @@ class AgriTradeApp extends StatelessWidget {
           ),
         ),
         ChangeNotifierProvider<ThemeProvider>(
-          create: (_) => ThemeProvider(),
+          create: (_) => di.getIt<ThemeProvider>(),
         ),
         ChangeNotifierProvider<AuthProvider>(
           create: (_) => AuthProvider(),

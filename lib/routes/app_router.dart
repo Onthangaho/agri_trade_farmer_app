@@ -11,6 +11,7 @@ import '../features/auth/presentation/screens/login_screen.dart';
 import '../features/auth/presentation/screens/register_screen.dart';
 import '../features/crops/presentation/screens/add_crop_screen.dart';
 import '../features/crops/presentation/screens/crop_detail_screen.dart';
+import '../features/crops/domain/entities/crop_entity.dart';
 import '../features/farms/presentation/screens/my_farm_screen.dart';
 import '../features/profile/presentation/screens/edit_profile_screen.dart';
 import '../features/splash/presentation/screens/splash_screen.dart';
@@ -82,14 +83,16 @@ class AppRouter {
       case RouteNames.addCrop:
         return const AddCropScreen();
       case RouteNames.cropDetail:
-        final String? cropId = settings?.arguments as String?;
-        if (cropId == null || cropId.isEmpty) {
+        final Object? args = settings?.arguments;
+        final String? cropId = args is String ? args : null;
+        final CropEntity? crop = args is CropEntity ? args : null;
+        if ((cropId == null || cropId.isEmpty) && crop == null) {
           return const AppPlaceholderScreen(
             title: 'Crop Detail',
             message: 'Could not open crop details.',
           );
         }
-        return const CropDetailScreen();
+        return CropDetailScreen(crop: crop);
       case RouteNames.addFarm:
         return const MyFarmScreen();
       case RouteNames.editProfile:
