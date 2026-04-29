@@ -183,26 +183,58 @@ class _AddCropScreenState extends State<AddCropScreen> {
       const _CompressionPreset(quality: 35, minWidth: 480, minHeight: 480),
     ];
 
+    final List<String> tempPaths = <String>[];
     XFile current = source;
-    for (int i = 0; i < presets.length; i++) {
-      final _CompressionPreset preset = presets[i];
-      final XFile? compressed = await FlutterImageCompress.compressAndGetFile(
-        current.path,
-        '${source.path}_sync_$i.jpg',
-        quality: preset.quality,
-        minWidth: preset.minWidth,
-        minHeight: preset.minHeight,
-      );
-      if (compressed == null) {
-        continue;
+    String? previousTempPath;
+    try {
+      for (int i = 0; i < presets.length; i++) {
+        final _CompressionPreset preset = presets[i];
+        final String nextTempPath = '${source.path}_sync_$i.jpg';
+        final XFile? compressed = await FlutterImageCompress.compressAndGetFile(
+          current.path,
+          nextTempPath,
+          quality: preset.quality,
+          minWidth: preset.minWidth,
+          minHeight: preset.minHeight,
+        );
+        if (compressed == null) {
+          continue;
+        }
+
+        tempPaths.add(compressed.path);
+        current = compressed;
+        final int sizeInBytes = await File(current.path).length();
+
+        // Keep only the latest temp candidate during compression iterations.
+        if (previousTempPath != null && previousTempPath != current.path) {
+          try {
+            await File(previousTempPath).delete();
+          } catch (_) {
+            // Best-effort cleanup; never fail crop listing due to temp deletion.
+          }
+          tempPaths.remove(previousTempPath);
+        }
+        previousTempPath = current.path;
+
+        if (sizeInBytes <= _maxFirestoreImageBytes) {
+          return current;
+        }
       }
-      current = compressed;
-      final int sizeInBytes = await File(current.path).length();
-      if (sizeInBytes <= _maxFirestoreImageBytes) {
-        return current;
+      return null;
+    } finally {
+      // If no valid compressed result was produced, clean up all temps.
+      if (previousTempPath == null ||
+          (File(previousTempPath).existsSync() &&
+              File(previousTempPath).lengthSync() > _maxFirestoreImageBytes)) {
+        for (final String path in tempPaths) {
+          try {
+            await File(path).delete();
+          } catch (_) {
+            // Best-effort cleanup only.
+          }
+        }
       }
     }
-    return null;
   }
 
   Future<File> _persistImageForListing(XFile image) async {
