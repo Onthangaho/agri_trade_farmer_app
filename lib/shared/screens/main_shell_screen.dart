@@ -180,57 +180,103 @@ class _MainShellScreenState extends State<MainShellScreen> {
         ),
       ),
       body: _tabs[_selectedIndex],
-      bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed,
-        currentIndex: _selectedIndex,
-        onTap: _onTabSelected,
-        backgroundColor: Colors.white,
-        selectedItemColor: AppColors.primaryGreen,
-        unselectedItemColor: AppColors.mutedText,
-        selectedLabelStyle: const TextStyle(
-          fontFamily: 'Poppins',
-          fontWeight: FontWeight.w600,
-          fontSize: 12,
-        ),
-        unselectedLabelStyle: const TextStyle(
-          fontFamily: 'NunitoSans',
-          fontWeight: FontWeight.w600,
-          fontSize: 11,
-        ),
-        items: const <BottomNavigationBarItem>[
-          BottomNavigationBarItem(icon: Icon(Icons.storefront), label: 'Market'),
-          BottomNavigationBarItem(icon: Icon(Icons.inventory_2), label: 'My Crops'),
-          BottomNavigationBarItem(
-            icon: _AddNavIcon(),
-            activeIcon: _AddNavIcon(isActive: true),
-            label: 'Add',
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
+      floatingActionButton: FloatingActionButton(
+        heroTag: 'shell_main_fab',
+        backgroundColor: AppColors.accentAmber,
+        foregroundColor: AppColors.navyText,
+        elevation: 4,
+        tooltip: 'Add crop listing',
+        onPressed: _openAddCrop,
+        child: const Icon(Icons.add, size: 30),
+      ),
+      bottomNavigationBar: BottomAppBar(
+        shape: const CircularNotchedRectangle(),
+        notchMargin: 8,
+        color: Colors.white,
+        elevation: 12,
+        padding: EdgeInsets.zero,
+        child: SizedBox(
+          height: 60,
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: _ShellNavItem(
+                  label: 'Market',
+                  icon: Icons.storefront,
+                  isSelected: _selectedIndex == 0,
+                  onTap: () => _onTabSelected(0),
+                ),
+              ),
+              Expanded(
+                child: _ShellNavItem(
+                  label: 'My Crops',
+                  icon: Icons.inventory_2,
+                  isSelected: _selectedIndex == 1,
+                  onTap: () => _onTabSelected(1),
+                ),
+              ),
+              const Expanded(child: SizedBox()),
+              Expanded(
+                child: _ShellNavItem(
+                  label: 'My Farm',
+                  icon: Icons.terrain,
+                  isSelected: _selectedIndex == 3,
+                  onTap: () => _onTabSelected(3),
+                ),
+              ),
+              Expanded(
+                child: _ShellNavItem(
+                  label: 'Profile',
+                  icon: Icons.person,
+                  isSelected: _selectedIndex == 4,
+                  onTap: () => _onTabSelected(4),
+                ),
+              ),
+            ],
           ),
-          BottomNavigationBarItem(icon: Icon(Icons.terrain), label: 'My Farm'),
-          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
-        ],
+        ),
       ),
     );
   }
 }
 
-class _AddNavIcon extends StatelessWidget {
-  const _AddNavIcon({this.isActive = false});
+class _ShellNavItem extends StatelessWidget {
+  const _ShellNavItem({
+    required this.label,
+    required this.icon,
+    required this.isSelected,
+    required this.onTap,
+  });
 
-  final bool isActive;
+  final String label;
+  final IconData icon;
+  final bool isSelected;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 34,
-      height: 34,
-      decoration: BoxDecoration(
-        color: isActive ? AppColors.primaryGreen : AppColors.accentAmber,
-        shape: BoxShape.circle,
-      ),
-      child: Icon(
-        Icons.add,
-        size: 20,
-        color: isActive ? Colors.white : AppColors.navyText,
+    final Color iconColor = isSelected ? AppColors.primaryGreen : AppColors.mutedText;
+    final Color textColor = isSelected ? AppColors.primaryGreen : AppColors.mutedText;
+    return InkWell(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          Icon(icon, color: iconColor),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontFamily: isSelected ? 'Poppins' : 'NunitoSans',
+              fontWeight: FontWeight.w600,
+              fontSize: isSelected ? 12 : 11,
+              color: textColor,
+            ),
+          ),
+        ],
       ),
     );
   }

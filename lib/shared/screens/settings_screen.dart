@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_colors.dart';
+import '../../core/services/sync_service.dart';
 import '../../features/auth/presentation/providers/auth_provider.dart';
 import '../../routes/route_names.dart';
 import '../providers/connectivity_provider.dart';
@@ -98,12 +99,41 @@ class SettingsScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Text(
+                      syncProvider.isSyncing
+                          ? 'Sync status: Syncing now'
+                          : 'Sync status: Idle',
+                      style: const TextStyle(
+                        fontFamily: 'NunitoSans',
+                        color: AppColors.navyText,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
                       'Pending sync items: ${syncProvider.pendingCount}',
                       style: const TextStyle(
                         fontFamily: 'NunitoSans',
                         color: AppColors.navyText,
                       ),
                     ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _lastSyncText(syncProvider),
+                      style: const TextStyle(
+                        fontFamily: 'NunitoSans',
+                        color: AppColors.mutedText,
+                      ),
+                    ),
+                    if (connectivityProvider.errorMessage != null) ...<Widget>[
+                      const SizedBox(height: 6),
+                      Text(
+                        connectivityProvider.errorMessage!,
+                        style: const TextStyle(
+                          fontFamily: 'NunitoSans',
+                          color: AppColors.errorTerracotta,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 10),
                     SizedBox(
                       width: double.infinity,
@@ -126,6 +156,27 @@ class SettingsScreen extends StatelessWidget {
                             : const Icon(Icons.sync),
                         label: Text(
                           syncProvider.isSyncing ? 'Syncing...' : 'Sync Now',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: connectivityProvider.isLoading
+                            ? null
+                            : connectivityProvider.refreshStatus,
+                        icon: connectivityProvider.isLoading
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.refresh),
+                        label: Text(
+                          connectivityProvider.isLoading
+                              ? 'Refreshing...'
+                              : 'Refresh Connectivity',
                         ),
                       ),
                     ),
@@ -163,6 +214,28 @@ class SettingsScreen extends StatelessWidget {
         );
       },
     );
+  }
+
+  String _lastSyncText(SyncProvider syncProvider) {
+    final DateTime? lastSync = syncProvider.lastSyncTime;
+    if (lastSync == null) {
+      return 'Last sync: Not yet';
+    }
+    final SyncResult? result = syncProvider.lastSyncResult;
+    if (result == null) {
+      return 'Last sync: ${_formatDateTime(lastSync)}';
+    }
+    return 'Last sync: ${_formatDateTime(lastSync)}'
+        ' (synced: ${result.synced}, failed: ${result.failed}, skipped: ${result.skipped})';
+  }
+
+  String _formatDateTime(DateTime value) {
+    final String day = value.day.toString().padLeft(2, '0');
+    final String month = value.month.toString().padLeft(2, '0');
+    final String year = value.year.toString();
+    final String hour = value.hour.toString().padLeft(2, '0');
+    final String minute = value.minute.toString().padLeft(2, '0');
+    return '$day/$month/$year $hour:$minute';
   }
 }
 

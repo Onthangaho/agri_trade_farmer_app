@@ -1,6 +1,7 @@
 // lib/shared/widgets/crop_card.dart
-/// Reusable crop listing card with status, sync indicator, and hero animation.
+/// Reusable crop listing card (fixed-height layout, ellipsis-safe text).
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -15,17 +16,17 @@ class CropCard extends StatelessWidget {
     required this.crop,
     this.index = 0,
     this.onTap,
+    this.layout = CropCardLayout.vertical,
   });
 
   final CropEntity crop;
   final int index;
   final VoidCallback? onTap;
+  final CropCardLayout layout;
 
   @override
   Widget build(BuildContext context) {
-    final bool isPendingSync = !crop.synced;
-    final _StatusPresentation statusPresentation = _buildStatusPresentation(crop);
-
+    final bool isHorizontal = layout == CropCardLayout.horizontal;
     return Hero(
       tag: 'crop_${crop.id}',
       child: Material(
@@ -34,11 +35,12 @@ class CropCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(16),
           onTap: onTap,
           child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            padding: const EdgeInsets.all(12),
+            height: isHorizontal ? 122 : 236,
+            margin: const EdgeInsets.symmetric(vertical: 6),
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.black12),
               boxShadow: const <BoxShadow>[
                 BoxShadow(
                   color: Color(0x15000000),
@@ -47,188 +49,255 @@ class CropCard extends StatelessWidget {
                 ),
               ],
             ),
-            child: Row(
-              children: <Widget>[
-                _buildImage(),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        crop.name,
-                        style: const TextStyle(
-                          fontFamily: 'Poppins',
-                          fontWeight: FontWeight.w600,
-                          fontSize: 15,
-                          color: AppColors.navyText,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${crop.quantity.toStringAsFixed(crop.quantity % 1 == 0 ? 0 : 1)} ${crop.unit}',
-                        style: const TextStyle(
-                          fontFamily: 'Nunito Sans',
-                          fontSize: 14,
-                          color: AppColors.mutedText,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'R ${crop.pricePerUnit.toStringAsFixed(2)} / ${crop.unit}',
-                        style: const TextStyle(
-                          fontFamily: 'Nunito Sans',
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.primaryGreen,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: <Widget>[
-                          _buildStatusChip(statusPresentation),
-                          const SizedBox(width: 8),
-                          Icon(
-                            isPendingSync ? Icons.cloud_off : Icons.cloud_done,
-                            size: 18,
-                            color: isPendingSync ? AppColors.accentAmber : AppColors.successGreen,
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+            child: isHorizontal ? _buildHorizontalContent() : _buildVerticalContent(),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildVerticalContent() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Expanded(child: _buildImageSection(isHorizontal: false)),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+          child: _buildInfoColumn(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHorizontalContent() {
+    return Padding(
+      padding: const EdgeInsets.all(9),
+      child: Row(
+        children: <Widget>[
+          _buildImageSection(isHorizontal: true),
+          const SizedBox(width: 10),
+          Expanded(
+            child: _buildInfoColumn(isHorizontal: true),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoColumn({bool isHorizontal = false}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: <Widget>[
+        Text(
+          crop.name,
+          style: const TextStyle(
+            fontFamily: 'Poppins',
+            fontWeight: FontWeight.w600,
+            fontSize: 15,
+            color: AppColors.navyText,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        SizedBox(height: isHorizontal ? 3 : 4),
+        Text(
+          '${crop.quantity.toStringAsFixed(crop.quantity % 1 == 0 ? 0 : 1)} ${crop.unit}',
+          style: const TextStyle(
+            fontFamily: 'NunitoSans',
+            fontSize: 13,
+            color: AppColors.mutedText,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        SizedBox(height: isHorizontal ? 5 : 6),
+        Text(
+          'R ${crop.pricePerUnit.toStringAsFixed(2)} / ${crop.unit}',
+          style: const TextStyle(
+            fontFamily: 'Poppins',
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+            color: AppColors.primaryGreen,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        SizedBox(height: isHorizontal ? 6 : 8),
+        Wrap(
+          spacing: 6,
+          runSpacing: isHorizontal ? 2 : 6,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: <Widget>[
+            _StatusChip(status: crop.isExpired ? 'expired' : crop.status),
+            if (!crop.synced) const _SyncPendingBadge(),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildImageSection({required bool isHorizontal}) {
+    return Container(
+      width: isHorizontal ? 90 : double.infinity,
+      height: isHorizontal ? double.infinity : null,
+      decoration: BoxDecoration(
+        color: AppColors.surfaceMist,
+        borderRadius: isHorizontal
+            ? BorderRadius.circular(12)
+            : const BorderRadius.only(
+                topLeft: Radius.circular(16),
+                topRight: Radius.circular(16),
+              ),
+      ),
+      child: ClipRRect(
+        borderRadius: isHorizontal
+            ? BorderRadius.circular(12)
+            : const BorderRadius.only(
+                topLeft: Radius.circular(16),
+                topRight: Radius.circular(16),
+              ),
+        child: _buildImage(),
       ),
     );
   }
 
   Widget _buildImage() {
-    const BorderRadius radius = BorderRadius.all(Radius.circular(12));
-    final String semanticLabel = '${crop.name} crop image';
-
-    if (crop.imageUrl != null && crop.imageUrl!.isNotEmpty) {
-      return Semantics(
-        label: semanticLabel,
-        image: true,
-        child: ClipRRect(
-          borderRadius: radius,
-          child: CachedNetworkImage(
-            imageUrl: crop.imageUrl!,
-            width: 80,
-            height: 80,
+    final String? imageUrl = crop.imageUrl;
+    if (imageUrl != null && imageUrl.isNotEmpty) {
+      // Handle base64 data-uri stored locally to avoid network fetch.
+      if (imageUrl.startsWith('data:image')) {
+        final ImageProvider<Object>? provider = _memoryImageProvider(imageUrl);
+        if (provider != null) {
+          return Image(
+            image: provider,
             fit: BoxFit.cover,
-            placeholder: (BuildContext context, String _) => Container(
-              width: 80,
-              height: 80,
-              color: AppColors.surfaceMist,
-              child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-            ),
-            errorWidget: (BuildContext context, String imageUrl, Object error) =>
-                _placeholderImage(),
-          ),
-        ),
+            width: double.infinity,
+            height: double.infinity,
+            errorBuilder: (BuildContext context, Object error, StackTrace? stackTrace) => const _ImagePlaceholder(),
+          );
+        }
+
+        // If the data-uri can't be decoded, don't try to fetch it as a URL.
+        return const _ImagePlaceholder();
+      }
+
+      return CachedNetworkImage(
+        imageUrl: imageUrl,
+        fit: BoxFit.cover,
+        width: double.infinity,
+        height: double.infinity,
+        placeholder: (BuildContext context, String _) => const _ImagePlaceholder(),
+        errorWidget: (BuildContext context, String _, Object error) => const _ImagePlaceholder(),
       );
     }
 
     if (crop.localImagePath != null && crop.localImagePath!.isNotEmpty) {
-      final File imageFile = File(crop.localImagePath!);
-      return Semantics(
-        label: semanticLabel,
-        image: true,
-        child: ClipRRect(
-          borderRadius: radius,
-          child: Image.file(
-            imageFile,
-            width: 80,
-            height: 80,
-            fit: BoxFit.cover,
-            errorBuilder: (BuildContext context, Object error, StackTrace? stackTrace) {
-              return _placeholderImage();
-            },
-          ),
-        ),
+      final File file = File(crop.localImagePath!);
+      return Image.file(
+        file,
+        fit: BoxFit.cover,
+        width: double.infinity,
+        height: double.infinity,
+        errorBuilder: (BuildContext context, Object error, StackTrace? stackTrace) => const _ImagePlaceholder(),
       );
     }
 
-    return _placeholderImage();
+    return const _ImagePlaceholder();
   }
 
-  Widget _placeholderImage() {
-    return Container(
-      width: 80,
-      height: 80,
-      decoration: BoxDecoration(
-        color: AppColors.surfaceMist,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: const Icon(Icons.image_outlined, color: AppColors.mutedText),
-    );
+  ImageProvider<Object>? _memoryImageProvider(String dataUri) {
+    final int commaIndex = dataUri.indexOf(',');
+    if (commaIndex <= 0 || commaIndex >= dataUri.length - 1) {
+      return null;
+    }
+    try {
+      return MemoryImage(base64Decode(dataUri.substring(commaIndex + 1)));
+    } catch (_) {
+      return null;
+    }
   }
+}
 
-  Widget _buildStatusChip(_StatusPresentation status) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: status.background,
-        borderRadius: BorderRadius.circular(999),
+enum CropCardLayout {
+  horizontal,
+  vertical,
+}
+
+class _ImagePlaceholder extends StatelessWidget {
+  const _ImagePlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Icon(
+        Icons.image_outlined,
+        size: 32,
+        color: AppColors.mutedText,
       ),
-      child: Text(
-        status.label,
-        style: TextStyle(
-          color: status.foreground,
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          fontFamily: 'Nunito Sans',
-        ),
-      ),
-    );
-  }
-
-  _StatusPresentation _buildStatusPresentation(CropEntity crop) {
-    if (crop.isExpired) {
-      return const _StatusPresentation(
-        label: 'Expired',
-        background: Color(0xFFFEE2E2),
-        foreground: Color(0xFF991B1B),
-      );
-    }
-
-    if (crop.status == 'sold') {
-      return const _StatusPresentation(
-        label: 'Sold',
-        background: Color(0xFFE5E7EB),
-        foreground: Color(0xFF4B5563),
-      );
-    }
-
-    if (crop.expiresAt != null && crop.expiresAt!.difference(DateTime.now()).inDays <= 2) {
-      return const _StatusPresentation(
-        label: 'Expiring soon',
-        background: Color(0xFFFFEDD5),
-        foreground: Color(0xFF9A3412),
-      );
-    }
-
-    return const _StatusPresentation(
-      label: 'Active',
-      background: Color(0xFFDCFCE7),
-      foreground: Color(0xFF166534),
     );
   }
 }
 
-class _StatusPresentation {
-  const _StatusPresentation({
-    required this.label,
-    required this.background,
-    required this.foreground,
-  });
+class _SyncPendingBadge extends StatelessWidget {
+  const _SyncPendingBadge();
 
-  final String label;
-  final Color background;
-  final Color foreground;
+  @override
+  Widget build(BuildContext context) {
+    return Icon(
+      Icons.cloud_off,
+      size: 18,
+      color: AppColors.accentAmber,
+    );
+  }
+}
+
+class _StatusChip extends StatelessWidget {
+  const _StatusChip({required this.status});
+
+  final String status;
+
+  @override
+  Widget build(BuildContext context) {
+    final String normalized = status.toLowerCase();
+
+    final Color statusColor;
+    final String statusLabel;
+
+    if (normalized == 'sold') {
+      statusColor = AppColors.mutedText;
+      statusLabel = 'Sold';
+    } else if (normalized == 'expired') {
+      statusColor = AppColors.errorTerracotta;
+      statusLabel = 'Expired';
+    } else if (normalized == 'active') {
+      statusColor = AppColors.successGreen;
+      statusLabel = 'Active';
+    } else {
+      statusColor = AppColors.mutedText;
+      statusLabel = status.isEmpty
+          ? 'Active'
+          : '${status[0].toUpperCase()}${status.substring(1)}';
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: statusColor.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: statusColor.withValues(alpha: 0.4)),
+      ),
+      child: Text(
+        statusLabel,
+        style: TextStyle(
+          fontFamily: 'NunitoSans',
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: statusColor,
+        ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+    );
+  }
 }
