@@ -6,12 +6,12 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../features/auth/presentation/providers/auth_provider.dart';
-import '../../features/crops/presentation/screens/add_crop_screen.dart';
 import '../../features/crops/presentation/screens/my_crops_screen.dart';
 import '../../features/farms/presentation/screens/my_farm_screen.dart';
 import '../../features/marketplace/presentation/screens/marketplace_screen.dart';
 import '../../features/profile/presentation/screens/profile_screen.dart';
 import '../../routes/route_names.dart';
+import '../widgets/logout_confirmation_dialog.dart';
 import '../widgets/sync_status_badge.dart';
 
 class MainShellScreen extends StatefulWidget {
@@ -24,10 +24,11 @@ class MainShellScreen extends StatefulWidget {
 class _MainShellScreenState extends State<MainShellScreen> {
   int _selectedIndex = 0;
 
+  /// Index 2 is the bottom-nav Add action only (opens a route); body never shows it.
   final List<Widget> _tabs = const <Widget>[
     MarketplaceScreen(),
     MyCropsScreen(),
-    AddCropScreen(),
+    SizedBox.shrink(),
     MyFarmScreen(),
     ProfileScreen(),
   ];
@@ -51,8 +52,30 @@ class _MainShellScreenState extends State<MainShellScreen> {
     Navigator.pushNamed(context, routeName);
   }
 
-  void _logout() {
-    context.read<AuthProvider>().signOut();
+  Future<void> _logout() async {
+    final bool shouldLogout = await showLogoutConfirmationDialog(context);
+    if (!shouldLogout || !mounted) {
+      return;
+    }
+    final AuthProvider? authProvider = context.read<AuthProvider?>();
+    if (authProvider != null) {
+      try {
+        await authProvider.signOut();
+      } catch (_) {
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not sign out. Please try again.'),
+          ),
+        );
+        return;
+      }
+    }
+    if (!mounted) {
+      return;
+    }
     Navigator.pushNamedAndRemoveUntil(
       context,
       RouteNames.login,
@@ -62,7 +85,7 @@ class _MainShellScreenState extends State<MainShellScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final user = context.read<AuthProvider>().currentUser;
+    final user = context.read<AuthProvider?>()?.currentUser;
     final String name = user?.displayName ?? 'AgriTrade Farmer';
     final String email = user?.email ?? '';
 
@@ -157,29 +180,57 @@ class _MainShellScreenState extends State<MainShellScreen> {
         ),
       ),
       body: _tabs[_selectedIndex],
-      floatingActionButton: FloatingActionButton.extended(
-        heroTag: 'main_add_crop_fab',
-        elevation: 4,
-        onPressed: _openAddCrop,
-        icon: const Icon(Icons.add_circle_outline),
-        label: const Text(
-          'List Crop',
-          style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w600),
-        ),
-        backgroundColor: AppColors.primaryGreen,
-        foregroundColor: Colors.white,
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
       bottomNavigationBar: BottomNavigationBar(
+        type: BottomNavigationBarType.fixed,
         currentIndex: _selectedIndex,
         onTap: _onTabSelected,
+        backgroundColor: Colors.white,
+        selectedItemColor: AppColors.primaryGreen,
+        unselectedItemColor: AppColors.mutedText,
+        selectedLabelStyle: const TextStyle(
+          fontFamily: 'Poppins',
+          fontWeight: FontWeight.w600,
+          fontSize: 12,
+        ),
+        unselectedLabelStyle: const TextStyle(
+          fontFamily: 'NunitoSans',
+          fontWeight: FontWeight.w600,
+          fontSize: 11,
+        ),
         items: const <BottomNavigationBarItem>[
           BottomNavigationBarItem(icon: Icon(Icons.storefront), label: 'Market'),
           BottomNavigationBarItem(icon: Icon(Icons.inventory_2), label: 'My Crops'),
-          BottomNavigationBarItem(icon: Icon(Icons.add_circle), label: 'Add'),
+          BottomNavigationBarItem(
+            icon: _AddNavIcon(),
+            activeIcon: _AddNavIcon(isActive: true),
+            label: 'Add',
+          ),
           BottomNavigationBarItem(icon: Icon(Icons.terrain), label: 'My Farm'),
           BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
         ],
+      ),
+    );
+  }
+}
+
+class _AddNavIcon extends StatelessWidget {
+  const _AddNavIcon({this.isActive = false});
+
+  final bool isActive;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 34,
+      height: 34,
+      decoration: BoxDecoration(
+        color: isActive ? AppColors.primaryGreen : AppColors.accentAmber,
+        shape: BoxShape.circle,
+      ),
+      child: Icon(
+        Icons.add,
+        size: 20,
+        color: isActive ? Colors.white : AppColors.navyText,
       ),
     );
   }

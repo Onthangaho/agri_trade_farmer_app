@@ -3,6 +3,7 @@
 
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:logger/logger.dart';
 import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
@@ -17,11 +18,14 @@ class DatabaseHelper {
   factory DatabaseHelper() => instance;
 
   final Logger _logger = Logger();
+  final ValueNotifier<bool> _isDegraded = ValueNotifier<bool>(false);
 
   Database? _database;
   Database? _databaseOverride;
   Database? _fallbackDatabase;
   String? _databasePathOverride;
+
+  ValueListenable<bool> get isDegraded => _isDegraded;
 
   void setDatabaseForTesting(Database database) {
     _databaseOverride = database;
@@ -86,7 +90,7 @@ class DatabaseHelper {
           error: fallbackError,
           stackTrace: fallbackStackTrace,
         );
-        return _NoopDatabase(_logger);
+        return _NoopDatabase(_logger, degradedNotifier: _isDegraded);
       }
     }
   }
@@ -476,10 +480,27 @@ class DatabaseHelper {
 }
 
 class _NoopDatabase implements Database {
-  _NoopDatabase(this._logger);
+  _NoopDatabase(
+    this._logger, {
+    required ValueNotifier<bool> degradedNotifier,
+    ValueChanged<String>? onDegraded,
+  })  : _degradedNotifier = degradedNotifier,
+        _onDegraded = onDegraded;
 
   final Logger _logger;
+  final ValueNotifier<bool> _degradedNotifier;
+  final ValueChanged<String>? _onDegraded;
   bool _isOpen = true;
+
+  ValueListenable<bool> get isDegraded => _degradedNotifier;
+
+  Never _degradedMutation(String operation) {
+    _degradedNotifier.value = true;
+    _onDegraded?.call(operation);
+    final StateError error = StateError('No-op database cannot perform "$operation".');
+    _logger.w(error.message);
+    throw error;
+  }
 
   @override
   String get path => ':noop:';
@@ -490,23 +511,45 @@ class _NoopDatabase implements Database {
   @override
   Future<void> close() async {
     _isOpen = false;
+    _degradedNotifier.value = true;
+    _onDegraded?.call('close');
   }
 
   @override
   Future<T> transaction<T>(Future<T> Function(Transaction txn) action, {bool? exclusive}) async {
-    return action(_NoopTransaction(_logger));
+    _degradedNotifier.value = true;
+    _onDegraded?.call('transaction');
+    return action(
+      _NoopTransaction(
+        _logger,
+        degradedNotifier: _degradedNotifier,
+        onDegraded: _onDegraded,
+      ),
+    );
   }
 
   @override
   Future<T> readTransaction<T>(Future<T> Function(Transaction txn) action) async {
-    return action(_NoopTransaction(_logger));
+    _degradedNotifier.value = true;
+    _onDegraded?.call('readTransaction');
+    return action(
+      _NoopTransaction(
+        _logger,
+        degradedNotifier: _degradedNotifier,
+        onDegraded: _onDegraded,
+      ),
+    );
   }
 
   @override
-  Future<void> execute(String sql, [List<Object?>? arguments]) async {}
+  Future<void> execute(String sql, [List<Object?>? arguments]) async {
+    _degradedMutation('execute');
+  }
 
   @override
-  Future<int> rawInsert(String sql, [List<Object?>? arguments]) async => 0;
+  Future<int> rawInsert(String sql, [List<Object?>? arguments]) async {
+    _degradedMutation('rawInsert');
+  }
 
   @override
   Future<int> insert(
@@ -514,7 +557,9 @@ class _NoopDatabase implements Database {
     Map<String, Object?> values, {
     String? nullColumnHack,
     ConflictAlgorithm? conflictAlgorithm,
-  }) async => 0;
+  }) async {
+    _degradedMutation('insert');
+  }
 
   @override
   Future<List<Map<String, Object?>>> query(
@@ -560,7 +605,9 @@ class _NoopDatabase implements Database {
   }
 
   @override
-  Future<int> rawUpdate(String sql, [List<Object?>? arguments]) async => 0;
+  Future<int> rawUpdate(String sql, [List<Object?>? arguments]) async {
+    _degradedMutation('rawUpdate');
+  }
 
   @override
   Future<int> update(
@@ -569,17 +616,23 @@ class _NoopDatabase implements Database {
     String? where,
     List<Object?>? whereArgs,
     ConflictAlgorithm? conflictAlgorithm,
-  }) async => 0;
+  }) async {
+    _degradedMutation('update');
+  }
 
   @override
-  Future<int> rawDelete(String sql, [List<Object?>? arguments]) async => 0;
+  Future<int> rawDelete(String sql, [List<Object?>? arguments]) async {
+    _degradedMutation('rawDelete');
+  }
 
   @override
-  Future<int> delete(String table, {String? where, List<Object?>? whereArgs}) async => 0;
+  Future<int> delete(String table, {String? where, List<Object?>? whereArgs}) async {
+    _degradedMutation('delete');
+  }
 
   @override
   Batch batch() {
-    throw UnimplementedError('Noop database does not support batch operations.');
+    _degradedMutation('batch');
   }
 
   @override
@@ -597,5 +650,9 @@ class _NoopDatabase implements Database {
 }
 
 class _NoopTransaction extends _NoopDatabase implements Transaction {
-  _NoopTransaction(super.logger);
+  _NoopTransaction(
+    super.logger, {
+    required super.degradedNotifier,
+    super.onDegraded,
+  });
 }
